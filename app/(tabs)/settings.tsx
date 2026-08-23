@@ -26,8 +26,9 @@ import { Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-nat
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ConfirmDialog } from '@/components/ConfirmDialog';
-import { MiniStepper, MonoLabel } from '@/components/ui';
+import { FilterPill, MiniStepper, MonoLabel, Stepper } from '@/components/ui';
 import {
+  BAR_WEIGHT_LIMITS,
   LEAD_SECONDS_LIMITS,
   SOUND_EVENTS,
   SOUND_IDS,
@@ -75,6 +76,13 @@ const SOUND_NAMES: Record<SoundChoice, string> = {
  * are all readable. The picker still warns, because the list is a shortcut and
  * not a cage.
  */
+/**
+ * Offered plate sizes (B9). A standard Olympic fractional set plus the two
+ * lightest change plates — enough to cover a home rack without scrolling.
+ * Anything the user doesn't own, they simply leave off.
+ */
+const PLATE_SIZES = [25, 20, 15, 10, 5, 2.5, 1.25, 1, 0.5];
+
 const SWATCHES: Record<'round' | 'warning' | 'rest', string[]> = {
   // A soft-blue gradient, light to dark, replacing the earlier mixed
   // near-black/green/maroon set entirely (`PLAN_ui_fixes.md` UI pass) — every
@@ -87,7 +95,15 @@ const SWATCHES: Record<'round' | 'warning' | 'rest', string[]> = {
 
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
-  const { settings, setSound, setLead, setUseCustomColors, setColor } = useSettings();
+  const {
+    settings,
+    setSound,
+    setLead,
+    setUseCustomColors,
+    setColor,
+    setBarWeight,
+    setAvailablePlates,
+  } = useSettings();
   const [picking, setPicking] = useState<SoundEvent | null>(null);
 
   return (
@@ -182,6 +198,48 @@ export default function SettingsScreen() {
         )}
       </View>
 
+      {/* Feeds the plate calculator (B9) — the StepEditSheet row that appears
+          only on a barbell exercise. Nothing here is used until then, so it
+          is fine that most users never open this group. */}
+      <View style={{ marginTop: space.xxl }}>
+        <MonoLabel>Plates</MonoLabel>
+
+        <View style={styles.row}>
+          <Text style={[t.exerciseRow, { color: color.ink, flex: 1 }]}>Bar weight</Text>
+          <Stepper
+            value={settings.plates.barKg}
+            step={0.5}
+            min={BAR_WEIGHT_LIMITS.min}
+            max={BAR_WEIGHT_LIMITS.max}
+            onChange={setBarWeight}
+            format={(v) => `${Number.isInteger(v) ? v : v.toFixed(1)} kg`}
+          />
+        </View>
+
+        <Text style={[t.bodySmall, { color: color.inkGhost, marginTop: space.m }]}>
+          Plates you own — the calculator only ever offers these
+        </Text>
+        <View style={styles.plateChips}>
+          {PLATE_SIZES.map((kg) => {
+            const owned = settings.plates.availableKg.includes(kg);
+            return (
+              <FilterPill
+                key={kg}
+                label={`${kg} kg`}
+                active={owned}
+                onPress={() =>
+                  setAvailablePlates(
+                    owned
+                      ? settings.plates.availableKg.filter((k) => k !== kg)
+                      : [...settings.plates.availableKg, kg].sort((a, b) => b - a),
+                  )
+                }
+              />
+            );
+          })}
+        </View>
+      </View>
+
       <ConfirmDialog
         visible={picking !== null}
         title={picking ? SOUND_LABELS[picking] : ''}
@@ -259,6 +317,7 @@ const styles = StyleSheet.create({
     borderBottomColor: color.divider,
   },
   leadStepper: { flex: 0, width: 128 },
+  plateChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: space.sm },
   colorRow: {
     gap: 10,
     paddingVertical: space.m,

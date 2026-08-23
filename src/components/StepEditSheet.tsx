@@ -25,7 +25,9 @@ import {
   withUniformReps,
   type Step,
 } from '@/domain/types';
-import { fieldsFor, TYPE_COPY, type ExerciseType } from '@/domain/exerciseType';
+import { fieldsFor, TYPE_COPY, type Equipment, type ExerciseType } from '@/domain/exerciseType';
+import { formatPlateBreakdown, platesFor } from '@/domain/plateCalc';
+import { useSettings } from '@/hooks/useSettings';
 import { color, radius, shadow, space } from '@/theme/tokens';
 import { type as t } from '@/theme/type';
 import { MonoLabel, PrimaryButton, SecondaryButton, Stepper, TypeTag } from './ui';
@@ -50,6 +52,11 @@ export interface StepEditContext {
    * two cannot disagree about one step.
    */
   type: ExerciseType;
+  /**
+   * What the exercise is done with. Only consulted for the plate calculator
+   * (B9) — every other row keys off `type`, not `equipment`.
+   */
+  equipment?: Equipment;
 }
 
 export function StepEditSheet({
@@ -234,6 +241,13 @@ export function StepEditSheet({
               />
             </Row>
           )}
+
+          {/* B9 — gated on the exercise's own `equipment`, never on `type`: a
+              barbell can carry any weighted type (weightReps, durationWeight,
+              weightDistance...), and a dumbbell exercise must never show it. */}
+          {fields.weight && context.equipment === 'barbell' && step.weightKg != null && (
+            <PlateRow targetKg={step.weightKg} />
+          )}
         </ScrollView>
 
         <View style={styles.footer}>
@@ -246,6 +260,32 @@ export function StepEditSheet({
         </View>
       </View>
     </Modal>
+  );
+}
+
+/**
+ * B9 — the plate calculator. Read-only: it reports what the Weight stepper
+ * above already says, in plates rather than kilograms, off the bar weight and
+ * owned plates set in Settings → Plates. Nothing here is editable, so
+ * changing it means changing the weight above or the settings, not this row.
+ */
+function PlateRow({ targetKg }: { targetKg: number }) {
+  const { settings } = useSettings();
+  const breakdown = platesFor(targetKg, settings.plates.barKg, settings.plates.availableKg);
+
+  return (
+    <Row label="Plates / side">
+      <Text
+        style={[
+          t.body,
+          { color: color.inkFaint, fontSize: 12.5, textAlign: 'right', flexShrink: 1 },
+        ]}
+      >
+        {breakdown
+          ? formatPlateBreakdown(breakdown, targetKg)
+          : `Below the bar (${settings.plates.barKg} kg)`}
+      </Text>
+    </Row>
   );
 }
 

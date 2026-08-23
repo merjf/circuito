@@ -58,6 +58,13 @@ export interface Settings {
     /** Rest background. */
     rest: string;
   };
+  /** Feeds the plate calculator (B9) — `domain/plateCalc.ts`. */
+  plates: {
+    /** What the bar itself weighs, before any plate goes on. */
+    barKg: number;
+    /** Plate weights the user owns, one entry per size (quantity is assumed unlimited). */
+    availableKg: number[];
+  };
 }
 
 /**
@@ -92,10 +99,23 @@ export const DEFAULT_SETTINGS: Settings = {
     warning: '#DCCB70',
     rest: '#F2F1EE',
   },
+  // A standard Olympic bar and a common fractional set. Not a guess at what
+  // any particular user owns — just a starting point that is one tap away
+  // from being edited, the same role every other default here plays.
+  plates: {
+    barKg: 20,
+    availableKg: [20, 15, 10, 5, 2.5, 1.25],
+  },
 };
 
 /** Lead times outside this range are rejected back to the default. */
 export const LEAD_SECONDS_LIMITS = { min: 0, max: 30 } as const;
+
+/** A bar heavier than this is not a bar; a bar lighter than this is not real. */
+export const BAR_WEIGHT_LIMITS = { min: 1, max: 50 } as const;
+
+/** Nothing anyone racks a barbell with weighs more than this. */
+export const PLATE_WEIGHT_LIMITS = { min: 0.25, max: 50 } as const;
 
 // ── Keys ───────────────────────────────────────────────────────────────────
 
@@ -104,6 +124,8 @@ export const SETTING_KEYS = {
   lead: (which: 'beforeRoundEnd' | 'beforeRestEnd') => `lead.${which}` as const,
   colorsUseCustom: 'colors.useCustom',
   color: (which: 'round' | 'warning' | 'rest') => `colors.${which}` as const,
+  barWeight: 'plates.barKg',
+  availablePlates: 'plates.availableKg',
 } as const;
 
 // ── Parsing ────────────────────────────────────────────────────────────────
@@ -125,6 +147,33 @@ const isLead = (v: unknown): v is number =>
   Number.isInteger(v) &&
   v >= LEAD_SECONDS_LIMITS.min &&
   v <= LEAD_SECONDS_LIMITS.max;
+
+const isBarWeight = (v: unknown): v is number =>
+  typeof v === 'number' &&
+  Number.isFinite(v) &&
+  v >= BAR_WEIGHT_LIMITS.min &&
+  v <= BAR_WEIGHT_LIMITS.max;
+
+/**
+ * Every entry must be a real plate size; one bad entry invalidates the whole
+ * list back to the default rather than silently dropping just that entry — a
+ * hand-edited or downgraded row is not something to guess at piecemeal.
+ *
+ * Empty is valid and is NOT the same as "unset": "I deselected every plate" is
+ * a real answer (someone who owns only the bar), and the calculator already
+ * says so honestly (`platesFor` returns `perSide: []`, `exact` only when the
+ * target is exactly the bar). Falling back to the default set here would
+ * silently reintroduce plates the user just said they do not have.
+ */
+const isPlateList = (v: unknown): v is number[] =>
+  Array.isArray(v) &&
+  v.every(
+    (n) =>
+      typeof n === 'number' &&
+      Number.isFinite(n) &&
+      n >= PLATE_WEIGHT_LIMITS.min &&
+      n <= PLATE_WEIGHT_LIMITS.max,
+  );
 
 /**
  * Build a `Settings` from whatever the database held, falling back per leaf.
@@ -151,6 +200,8 @@ export function settingsFromRows(rows: Record<string, unknown>): Settings {
   };
 
   const useCustomRaw = rows[SETTING_KEYS.colorsUseCustom];
+  const barKgRaw = rows[SETTING_KEYS.barWeight];
+  const availableKgRaw = rows[SETTING_KEYS.availablePlates];
 
   return {
     sounds,
@@ -165,6 +216,10 @@ export function settingsFromRows(rows: Record<string, unknown>): Settings {
       warning: color('warning'),
       rest: color('rest'),
     },
+    plates: {
+      barKg: isBarWeight(barKgRaw) ? barKgRaw : DEFAULT_SETTINGS.plates.barKg,
+      availableKg: isPlateList(availableKgRaw) ? availableKgRaw : DEFAULT_SETTINGS.plates.availableKg,
+    },
   };
 }
 
@@ -177,6 +232,8 @@ export function settingsToRows(settings: Settings): Record<string, unknown> {
     [SETTING_KEYS.color('rest')]: settings.colors.rest,
     [SETTING_KEYS.lead('beforeRoundEnd')]: settings.leadSeconds.beforeRoundEnd,
     [SETTING_KEYS.lead('beforeRestEnd')]: settings.leadSeconds.beforeRestEnd,
+    [SETTING_KEYS.barWeight]: settings.plates.barKg,
+    [SETTING_KEYS.availablePlates]: settings.plates.availableKg,
   };
   for (const event of SOUND_EVENTS) {
     rows[SETTING_KEYS.sound(event)] = settings.sounds[event];

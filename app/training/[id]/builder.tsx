@@ -205,6 +205,7 @@ export default function BuilderScreen() {
       step,
       exerciseName: exercise?.name ?? 'Exercise',
       type: exercise?.type ?? 'weightReps',
+      equipment: exercise?.equipment,
       blockLabel: block.label,
       position: index + 1,
       total: block.steps.length,

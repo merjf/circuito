@@ -41,6 +41,8 @@ interface SettingsContextValue {
   setLead: (which: 'beforeRoundEnd' | 'beforeRestEnd', seconds: number) => void;
   setUseCustomColors: (on: boolean) => void;
   setColor: (which: 'round' | 'warning' | 'rest', hex: string) => void;
+  setBarWeight: (kg: number) => void;
+  setAvailablePlates: (kg: number[]) => void;
 }
 
 const SettingsContext = createContext<SettingsContextValue | null>(null);
@@ -102,6 +104,18 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
           { ...settings, colors: { ...settings.colors, [which]: hex } },
           SETTING_KEYS.color(which),
           hex,
+        ),
+      setBarWeight: (kg) =>
+        write(
+          { ...settings, plates: { ...settings.plates, barKg: kg } },
+          SETTING_KEYS.barWeight,
+          kg,
+        ),
+      setAvailablePlates: (kg) =>
+        write(
+          { ...settings, plates: { ...settings.plates, availableKg: kg } },
+          SETTING_KEYS.availablePlates,
+          kg,
         ),
     }),
     [settings, loading, write],

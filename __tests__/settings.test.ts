@@ -8,8 +8,10 @@
  */
 
 import {
+  BAR_WEIGHT_LIMITS,
   DEFAULT_SETTINGS,
   LEAD_SECONDS_LIMITS,
+  PLATE_WEIGHT_LIMITS,
   SETTING_KEYS,
   SOUND_EVENTS,
   settingsFromRows,
@@ -35,7 +37,16 @@ describe('settings — round trip', () => {
       },
       leadSeconds: { beforeRoundEnd: 5, beforeRestEnd: 1 },
       colors: { useCustom: true, round: '#0a0a0a', warning: '#ffcc00', rest: '#eeeeee' },
+      plates: { barKg: 15, availableKg: [25, 20, 10] },
     };
+    expect(settingsFromRows(settingsToRows(custom))).toEqual(custom);
+  });
+
+  it('survives a round trip with no plates owned', () => {
+    // Distinct from an unset row (§ below) — this is the user explicitly
+    // saying they own none, and it must come back exactly that way rather
+    // than reverting to the shipped set.
+    const custom: Settings = { ...DEFAULT_SETTINGS, plates: { barKg: 20, availableKg: [] } };
     expect(settingsFromRows(settingsToRows(custom))).toEqual(custom);
   });
 
@@ -92,6 +103,32 @@ describe('settings — a bad row costs one setting, not the screen', () => {
     expect(settingsFromRows(rows).leadSeconds.beforeRoundEnd).toBe(0);
   });
 
+  it('rejects a bar weight that is zero, negative or out of range', () => {
+    for (const bad of [0, -1, BAR_WEIGHT_LIMITS.max + 1, Number.NaN, '20', null]) {
+      const rows = settingsToRows(DEFAULT_SETTINGS);
+      rows[SETTING_KEYS.barWeight] = bad;
+      expect(settingsFromRows(rows).plates.barKg).toBe(DEFAULT_SETTINGS.plates.barKg);
+    }
+  });
+
+  it('rejects the whole plate list when one entry is bad, rather than dropping just that entry', () => {
+    const rows = settingsToRows(DEFAULT_SETTINGS);
+    rows[SETTING_KEYS.availablePlates] = [20, 15, PLATE_WEIGHT_LIMITS.max + 1, 5];
+    expect(settingsFromRows(rows).plates.availableKg).toEqual(DEFAULT_SETTINGS.plates.availableKg);
+  });
+
+  it('rejects a plate list that is not an array', () => {
+    const rows = settingsToRows(DEFAULT_SETTINGS);
+    rows[SETTING_KEYS.availablePlates] = '20,15,10';
+    expect(settingsFromRows(rows).plates.availableKg).toEqual(DEFAULT_SETTINGS.plates.availableKg);
+  });
+
+  it('accepts an empty plate list — owning nothing is a real answer, not a corrupt row', () => {
+    const rows = settingsToRows(DEFAULT_SETTINGS);
+    rows[SETTING_KEYS.availablePlates] = [];
+    expect(settingsFromRows(rows).plates.availableKg).toEqual([]);
+  });
+
   it('ignores a key it has never heard of', () => {
     // A downgrade after a newer build wrote something should be a no-op.
     const rows = settingsToRows(DEFAULT_SETTINGS);
@@ -116,5 +153,14 @@ describe('settings — the shipped defaults are self-consistent', () => {
   it('starts with custom colours off', () => {
     // Leaving the switch alone must not shift a pixel of the shipped player.
     expect(DEFAULT_SETTINGS.colors.useCustom).toBe(false);
+  });
+
+  it('ships a bar weight and plate set that pass their own validation', () => {
+    expect(DEFAULT_SETTINGS.plates.barKg).toBeGreaterThanOrEqual(BAR_WEIGHT_LIMITS.min);
+    expect(DEFAULT_SETTINGS.plates.barKg).toBeLessThanOrEqual(BAR_WEIGHT_LIMITS.max);
+    for (const plate of DEFAULT_SETTINGS.plates.availableKg) {
+      expect(plate).toBeGreaterThanOrEqual(PLATE_WEIGHT_LIMITS.min);
+      expect(plate).toBeLessThanOrEqual(PLATE_WEIGHT_LIMITS.max);
+    }
   });
 });

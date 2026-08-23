@@ -17,3 +17,5 @@ android/
 
 expo-env.d.ts
 # @end expo-cli
+# Stale FUSE hidden files left behind by editors on network-mounted folders
+.fuse_hidden*

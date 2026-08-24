@@ -1,6 +1,7 @@
 # What's left — Circuito, after the exercise-type rewrite
 
-**Status as of 2026-08-23.** `npx tsc --noEmit` clean, `npx jest` 295/295.
+**Status as of 2026-08-24.** `npx tsc --noEmit` clean, `npx jest` 312/312. Sections 3, 5,
+and part of 6 below are now done; left in place as a record rather than deleted.
 
 This picks up where `PLAN_hevy_integration.md` stops. That document is still the
 reference for *why* things are shaped the way they are; this one is only the
@@ -123,27 +124,36 @@ mistake.
 
 ---
 
-## 5. Not built from the original plan
+## 5. Not built from the original plan — DONE (2026-08-24)
 
-Three items from `PLAN_hevy_integration.md` never landed, each for a reason.
+Three items from `PLAN_hevy_integration.md` were unbuilt as of 2026-08-23. All
+three are now in; kept here as a record of what closed and why the earlier
+"needs network" note was wrong.
 
-**Plate calculator (B9).** Never started. Not blocked by anything — it needs
-`equipment === 'barbell'`, which now exists properly, and a bar weight setting.
-This is the cheapest remaining feature and the most self-contained.
+**Plate calculator (B9).** Built. `src/domain/plateCalc.ts` (`platesFor`,
+`formatPlateBreakdown`), `Settings.plates`, a Plates group in Settings, and a
+read-only breakdown in the builder's `StepEditSheet` gated on
+`equipment === 'barbell'`. Deliberately not surfaced in the reps logger — see
+`circuito_implementation_status` memory for why.
 
-**Ongoing notification (§3.9, B10).** Needs `expo-notifications`, which is not
-in `package.json`. I cannot add it: the machine this session reaches your files
-through has no network, so `npm install` fails. Install it yourself and this
-becomes buildable — it is the one thing that would make the player usable with
-the screen off, which for a phone-on-the-floor app is not a small gap.
+**Ongoing notification (§3.9, B10).** Built. The earlier note said this needed
+`npm install`, which needed network, which the session didn't have. That
+premise was wrong: `npm install expo-notifications@57.0.13` works fine from
+the device VM — only `npx expo install` (a different, blocked API call) fails.
+`src/runner/sessionNotification.ts` + `useSessionNotification.ts`, wired into
+`app/player/[trainingId].tsx`; `app.json` gained the plugin entry.
 
-**Share card (phase 4).** Needs `react-native-view-shot`. Same blocker, same
-fix.
+**Share card (phase 4, §3.5).** Built, same unblocking. `npm install
+react-native-view-shot@5.1.1` and `npm install expo-sharing@57.0.14`.
+`src/components/ShareCard.tsx`, captured and shared from a new button on
+`app/session/[id].tsx`.
 
-Everything else from phases 0–4 is in: overflow menus, library sort,
-multi-select picker, rest ±15s, the logger and its set log, session summary
-breakdown, exercise detail tabs, PR toast, calendar grid, volume per tag, Train
-tab pills and search, monthly card.
+Everything from phases 0–4 plus B9, §3.9, and §3.5 is in: overflow menus,
+library sort, multi-select picker, rest ±15s, the logger and its set log,
+session summary breakdown, exercise detail tabs, PR toast, calendar grid,
+volume per tag, Train tab pills and search, monthly card, the plate
+calculator, the ongoing notification, the share card. None of it has run on a
+real phone — see §1.
 
 ---
 
@@ -167,9 +177,12 @@ generated file and the dev server rewrites it on the next `expo start`, at
 which point the patch is redundant and harmless. Mentioned only so it is not a
 surprise in a diff.
 
-**Nothing is committed to git.** The repo has no `.git` reachable from where I
-work, so every change above is on disk and uncommitted. Worth a commit before
-anything else touches it.
+**Git — resolved 2026-08-23/24.** The mount blocks the `unlink()` syscall git's
+lockfile rollback wants, which left stale `.git/index.lock`/`.git/HEAD.lock`
+files jamming every command. Workaround (`mv` the lock aside before each git
+call — rename doesn't need `unlink`) is in the `circuito_device_bash_notes`
+memory file. `main` now has real commits: the rewrite + phases 0-4, a
+housekeeping pass, B9, and the §3.9/§3.5 install + features.
 
 ---
 

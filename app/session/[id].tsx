@@ -18,12 +18,16 @@
  */
 
 import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import * as Sharing from 'expo-sharing';
+import { captureRef } from 'react-native-view-shot';
 
 import { ConfirmDialog } from '@/components/ConfirmDialog';
-import { MonoLabel, PrimaryButton, SecondaryButton, StatCard, SunkenRow } from '@/components/ui';
+import { ShareCard } from '@/components/ShareCard';
+import { Toast } from '@/components/Toast';
+import { IconButton, MonoLabel, PrimaryButton, SecondaryButton, StatCard, SunkenRow } from '@/components/ui';
 import { deleteSession, getSession, listSetLogs } from '@/db/repo';
 import { formatDayDateTime } from '@/domain/dates';
 import { formatDuration } from '@/domain/duration';
@@ -39,6 +43,11 @@ export default function SessionSummaryScreen() {
   const [session, setSession] = useState<Session | null>(null);
   const [logs, setLogs] = useState<SetLog[]>([]);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [sharing, setSharing] = useState(false);
+  const [shareNotice, setShareNotice] = useState<{ title: string; message?: string } | null>(
+    null,
+  );
+  const shareCardRef = useRef<View>(null);
 
   useEffect(() => {
     getSession(id).then(setSession);
@@ -66,6 +75,31 @@ export default function SessionSummaryScreen() {
     router.back();
   };
 
+  // Captures the off-screen `ShareCard` as a PNG and hands it to the system
+  // share sheet. This is a still image of the summary you already saved, not
+  // a live view — there is nothing here that changes after the fact, so a
+  // snapshot is the honest artifact to share. Failures (no share target on
+  // this build, a capture error) are quiet by default, matching the rest of
+  // the app's non-critical-feature convention, but a tap is a deliberate
+  // action, so a failed one still gets a brief Toast rather than nothing.
+  const handleShare = async () => {
+    if (sharing) return;
+    setSharing(true);
+    try {
+      const uri = await captureRef(shareCardRef, { format: 'png', quality: 1, result: 'tmpfile' });
+      const available = await Sharing.isAvailableAsync();
+      if (!available) {
+        setShareNotice({ title: 'Sharing unavailable', message: 'This device has no share sheet.' });
+        return;
+      }
+      await Sharing.shareAsync(uri, { mimeType: 'image/png', dialogTitle: 'Share your session' });
+    } catch {
+      setShareNotice({ title: "Couldn't share", message: 'Give it another try.' });
+    } finally {
+      setSharing(false);
+    }
+  };
+
   return (
     <View style={{ flex: 1, backgroundColor: color.canvas }}>
       <ScrollView
@@ -84,15 +118,20 @@ export default function SessionSummaryScreen() {
           </Pressable>
         )}
 
-        <View style={styles.checkCircle}>
-          {fromHistory ? (
-            <View style={styles.historyGlyph}>
-              <View style={styles.historyRing} />
-              <View style={styles.historyHand} />
-            </View>
-          ) : (
-            <Text style={{ color: color.darkInk, fontSize: 20, lineHeight: 24 }}>✓</Text>
-          )}
+        <View style={styles.headerRow}>
+          <View style={styles.checkCircle}>
+            {fromHistory ? (
+              <View style={styles.historyGlyph}>
+                <View style={styles.historyRing} />
+                <View style={styles.historyHand} />
+              </View>
+            ) : (
+              <Text style={{ color: color.darkInk, fontSize: 20, lineHeight: 24 }}>✓</Text>
+            )}
+          </View>
+          <IconButton onPress={handleShare} accessibilityLabel="Share this session" disabled={sharing}>
+            <Text style={{ color: color.ink, fontSize: 18, lineHeight: 20 }}>↑</Text>
+          </IconButton>
         </View>
 
         <Text style={[t.screenTitle, { color: color.ink, marginTop: space.xl, fontSize: 34 }]}>
@@ -209,6 +248,20 @@ export default function SessionSummaryScreen() {
         actions={[{ label: 'Delete', destructive: true, onPress: removeSession }]}
         onCancel={() => setConfirmingDelete(false)}
       />
+
+      <Toast
+        title={shareNotice?.title ?? null}
+        message={shareNotice?.message}
+        onDone={() => setShareNotice(null)}
+      />
+
+      {/* Rendered off-screen, never visible — `captureRef` needs a mounted,
+          laid-out view to snapshot. Positioned rather than unmounted so the
+          capture always has real content, and far enough off-canvas that it
+          never affects layout or shows through the scroll view above. */}
+      <View style={styles.offscreen} pointerEvents="none">
+        <ShareCard ref={shareCardRef} session={session} />
+      </View>
     </View>
   );
 }
@@ -281,6 +334,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   back: { marginBottom: space.l },
+  headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   checkCircle: {
     width: 46,
     height: 46,
@@ -343,4 +397,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   deleteLabel: { fontFamily: 'Archivo_600SemiBold', fontSize: 14, color: color.softRedIcon },
+  // Off-canvas rather than unmounted: `captureRef` needs real, laid-out
+  // content to snapshot. `left` keeps it clear of the screen at any width.
+  offscreen: { position: 'absolute', top: -9999, left: -9999 },
 });

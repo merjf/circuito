@@ -56,6 +56,7 @@ import { formatWeightChip, weightOf } from '@/domain/weight';
 import { gatedReadout, NOTHING, trimNumber, upNextMeta } from '@/runner/cueText';
 import { useCueSounds } from '@/runner/useCueSounds';
 import { useRunner, type RunnerState } from '@/runner/useRunner';
+import { useSessionNotification } from '@/runner/useSessionNotification';
 import { useSettings } from '@/hooks/useSettings';
 import { playerPalette, playerStateFor } from '@/theme/playerPalette';
 import { color, radius, size, space, transition } from '@/theme/tokens';
@@ -244,6 +245,22 @@ function Player({
   const gated = runner.cue
     ? gatedReadout(runner.cue, exercise?.type)
     : { value: NOTHING, unit: null };
+
+  /**
+   * §3.9 — the ongoing notification. Deliberately not `runner.remaining`: a
+   * number that stops updating outside this screen would silently start
+   * lying the moment the phone locks, which is exactly the kind of invented
+   * precision the rest of the app refuses. `cue.seconds` is the PLAN's
+   * length, a fact as static as `stepMetaLine`'s, not a claim about what is
+   * left right now.
+   */
+  const notifBody =
+    runner.remaining === null
+      ? `${phaseLabel} · ${gated.value}${gated.unit ? ` ${gated.unit}` : ''}`
+      : runner.isPaused
+        ? `${phaseLabel} · Paused`
+        : `${phaseLabel} · ${formatClock(runner.cue?.seconds ?? 0)}`;
+  useSessionNotification({ active: !runner.finished, title, body: notifBody });
 
   /**
    * The prescription, as chips under the exercise name.

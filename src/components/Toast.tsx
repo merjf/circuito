@@ -12,9 +12,10 @@
  */
 
 import { useEffect, useRef } from 'react';
-import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Animated, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { AnimatedPressable } from '@/components/ui';
 import { color, radius, space } from '@/theme/tokens';
 import { type as t } from '@/theme/type';
 
@@ -71,7 +72,13 @@ export function Toast({
     >
       {/* Tappable only to dismiss early — never to confirm, because there is
           nothing here to confirm. */}
-      <Pressable onPress={() => doneRef.current()} style={styles.toast}>
+      <AnimatedPressable
+        onPress={() => doneRef.current()}
+        haptic={false}
+        toScale={0.98}
+        toOpacity={0.85}
+        style={styles.toast}
+      >
         <View style={styles.mark} />
         <View style={{ flex: 1 }}>
           <Text style={[t.monoLabel, { color: color.darkInk }]}>{title}</Text>
@@ -84,7 +91,7 @@ export function Toast({
             </Text>
           )}
         </View>
-      </Pressable>
+      </AnimatedPressable>
     </Animated.View>
   );
 }

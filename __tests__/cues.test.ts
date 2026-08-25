@@ -62,6 +62,12 @@ describe('rests and prepare', () => {
     ).toEqual(['beforeRestEnd']);
   });
 
+  it('a block rest behaves as a rest', () => {
+    expect(
+      scheduledSounds(cue({ kind: 'blockRest', seconds: 75 }), DEFAULT_SETTINGS).map((e) => e.event),
+    ).toEqual(['beforeRestEnd']);
+  });
+
   it('prepare is silent, so the start bell always means move now', () => {
     expect(soundEventsForCue(cue({ kind: 'prepare', seconds: 10 }), DEFAULT_SETTINGS)).toEqual([]);
   });

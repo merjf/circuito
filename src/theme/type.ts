@@ -1,9 +1,7 @@
 /**
  * Typography — from the handoff § "Typography".
  *
- * Two families only:
- *   Archivo       400/500/600/700 — UI and numerals
- *   IBM Plex Mono 400/500         — labels, counters, durations (always uppercase)
+ * Inter throughout. Labels retain a little tracking, but are not mono.
  *
  * Both are bundled via @expo-google-fonts (SIL OFL), loaded in app/_layout.tsx.
  * Timer digits always use tabular figures so they do not jitter as they count.
@@ -12,12 +10,13 @@
 import type { TextStyle } from 'react-native';
 
 export const font = {
-  regular: 'Archivo_400Regular',
-  medium: 'Archivo_500Medium',
-  semibold: 'Archivo_600SemiBold',
-  bold: 'Archivo_700Bold',
-  mono: 'IBMPlexMono_400Regular',
-  monoMedium: 'IBMPlexMono_500Medium',
+  regular: 'Inter_400Regular',
+  medium: 'Inter_500Medium',
+  semibold: 'Inter_600SemiBold',
+  bold: 'Inter_700Bold',
+  extraBold: 'Inter_800ExtraBold',
+  mono: 'Inter_400Regular',
+  monoMedium: 'Inter_600SemiBold',
 } as const;
 
 /** react-native equivalent of `font-variant-numeric: tabular-nums`. */
@@ -26,16 +25,16 @@ export const tabular: TextStyle = { fontVariant: ['tabular-nums'] };
 const t = <T extends Record<string, TextStyle>>(styles: T) => styles;
 
 export const type = t({
-  /** Archivo 600 / 27 / 1.1 / -.02em */
+  /** Inter 800 / 27 / 1.1 / -.02em */
   screenTitle: {
-    fontFamily: font.semibold,
+    fontFamily: font.extraBold,
     fontSize: 27,
     lineHeight: 30,
     letterSpacing: -0.54,
   },
-  /** Archivo 600 / 25 / 1.15 / -.02em */
+  /** Inter 800 / 25 / 1.15 / -.02em */
   detailTitle: {
-    fontFamily: font.semibold,
+    fontFamily: font.extraBold,
     fontSize: 25,
     lineHeight: 29,
     letterSpacing: -0.5,
@@ -48,20 +47,20 @@ export const type = t({
   body: { fontFamily: font.regular, fontSize: 13, lineHeight: 21 },
   bodySmall: { fontFamily: font.regular, fontSize: 12.5, lineHeight: 19 },
 
-  /** Plex Mono 500 / 10 / uppercase / .12em */
+  /** Inter 600 / 11 / uppercase / .04em */
   monoLabel: {
     fontFamily: font.monoMedium,
-    fontSize: 10,
-    lineHeight: 10,
-    letterSpacing: 1.2,
+    fontSize: 11,
+    lineHeight: 13,
+    letterSpacing: 0.44,
     textTransform: 'uppercase',
   },
   /** Plex Mono 500 / 9.5 / uppercase / .14em — "Up next", tab bar */
   monoLabelTiny: {
     fontFamily: font.monoMedium,
-    fontSize: 9.5,
-    lineHeight: 9.5,
-    letterSpacing: 1.33,
+    fontSize: 10.5,
+    lineHeight: 12,
+    letterSpacing: 0.42,
     textTransform: 'uppercase',
   },
   /** Plex Mono 500 / 10 / uppercase / .22em — the WORK / REST / PREPARE label */
@@ -69,7 +68,7 @@ export const type = t({
     fontFamily: font.monoMedium,
     fontSize: 10,
     lineHeight: 10,
-    letterSpacing: 2.2,
+    letterSpacing: 0.8,
     textTransform: 'uppercase',
   },
   /** Plex Mono 500 / 11–13 */
@@ -94,7 +93,7 @@ export const type = t({
    * closer in weight competes for the same glance.
    */
   playerTimerUnit: {
-    fontFamily: font.mono,
+    fontFamily: font.medium,
     fontSize: 26,
     letterSpacing: 0,
   },

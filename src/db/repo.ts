@@ -261,13 +261,14 @@ export async function saveTraining(t: Training, conn?: SQLite.SQLiteDatabase): P
 
     for (const [bi, b] of t.blocks.entries()) {
       await c.runAsync(
-        `INSERT INTO blocks (id,trainingId,label,repeat,restBetweenRoundsSeconds,position,updatedAt)
-         VALUES (?,?,?,?,?,?,?)`,
+        `INSERT INTO blocks (id,trainingId,label,repeat,restBetweenRoundsSeconds,restAfterBlockSeconds,position,updatedAt)
+         VALUES (?,?,?,?,?,?,?,?)`,
         b.id,
         t.id,
         b.label,
         b.repeat,
         b.restBetweenRoundsSeconds,
+        b.restAfterBlockSeconds ?? 0,
         bi,
         t.updatedAt,
       );
@@ -749,6 +750,7 @@ async function hydrate(r: any, c: SQLite.SQLiteDatabase): Promise<Training> {
       label: b.label,
       repeat: b.repeat,
       restBetweenRoundsSeconds: b.restBetweenRoundsSeconds,
+      restAfterBlockSeconds: b.restAfterBlockSeconds ?? 0,
       steps,
     });
   }

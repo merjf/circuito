@@ -18,7 +18,6 @@ import {
   Card,
   MonoLabel,
   OutlineChip,
-  PencilButton,
   PrimaryButton,
   ScreenHeader,
   SecondaryButton,
@@ -108,12 +107,14 @@ export default function TrainingDetailScreen() {
             // (`PLAN_ui_fixes.md` A4) — Edit stays a text action, the bin
             // sits beside it rather than replacing it.
             <View style={styles.headerActions}>
-              <PencilButton
-                accessibilityLabel={`Edit ${training.name || 'this training'}`}
+              <Text
                 onPress={() =>
                   router.push({ pathname: '/training/[id]/builder', params: { id: training.id } })
                 }
-              />
+                style={[t.exerciseRow, { color: color.accent, fontSize: 14 }]}
+              >
+                Edit
+              </Text>
               <BinButton
                 accessibilityLabel={`Delete ${training.name || 'this training'}`}
                 onPress={() => setConfirmingDelete(true)}
@@ -149,8 +150,14 @@ export default function TrainingDetailScreen() {
           </View>
         )}
 
-        {training.blocks.map((block) => (
-          <BlockCard key={block.id} block={block} exercises={exercises} types={types} />
+        {training.blocks.map((block, index) => (
+          <BlockCard
+            key={block.id}
+            block={block}
+            exercises={exercises}
+            types={types}
+            nextBlockLabel={training.blocks[index + 1]?.label}
+          />
         ))}
       </ScrollView>
 
@@ -206,11 +213,13 @@ function BlockCard({
   block,
   exercises,
   types,
+  nextBlockLabel,
 }: {
   block: Block;
   exercises: Map<string, Exercise>;
   /** Read per step: within one block, each exercise brings its own units. */
   types: ExerciseTypes;
+  nextBlockLabel?: string;
 }) {
   return (
     <Card style={{ marginTop: space.sm, overflow: 'hidden' }}>
@@ -246,6 +255,15 @@ function BlockCard({
           <MonoLabel tone={color.inkMuted}>Rest between rounds</MonoLabel>
           <Text style={[t.monoValueLarge, { color: color.ink }]}>
             {formatDuration(block.restBetweenRoundsSeconds)}
+          </Text>
+        </View>
+      )}
+
+      {nextBlockLabel && (block.restAfterBlockSeconds ?? 0) > 0 && (
+        <View style={styles.blockFooter}>
+          <MonoLabel tone={color.inkMuted}>Rest before {nextBlockLabel}</MonoLabel>
+          <Text style={[t.monoValueLarge, { color: color.ink }]}>
+            {formatDuration(block.restAfterBlockSeconds ?? 0)}
           </Text>
         </View>
       )}
@@ -285,7 +303,7 @@ const styles = StyleSheet.create({
   stepDivider: { borderTopWidth: 1, borderTopColor: color.divider },
   stepIndex: { color: color.inkGhostest, width: 14, marginTop: 2 },
   blockFooter: {
-    backgroundColor: color.blockHeader,
+    backgroundColor: color.sunken,
     paddingHorizontal: 16,
     height: 46,
     flexDirection: 'row',

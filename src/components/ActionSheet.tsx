@@ -15,9 +15,10 @@
  * `onPress: () => setConfirmingDelete(true)` without thinking about it.
  */
 
-import { InteractionManager, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { InteractionManager, Modal, Pressable, StyleSheet, Text } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { AnimatedPressable } from '@/components/ui';
 import { color, radius, space } from '@/theme/tokens';
 import { type as t } from '@/theme/type';
 
@@ -57,11 +58,13 @@ export function ActionSheet({
           )}
 
           {actions.map((action, i) => (
-            <Pressable
+            <AnimatedPressable
               key={action.label}
               disabled={action.disabled}
               accessibilityRole="button"
               accessibilityLabel={action.label}
+              haptic={action.destructive}
+              toOpacity={0.5}
               onPress={() => {
                 // Dismiss first, then act — see the note at the top of the
                 // file. Both calls in the same handler would batch into one
@@ -72,10 +75,9 @@ export function ActionSheet({
                 onClose();
                 InteractionManager.runAfterInteractions(action.onPress);
               }}
-              style={({ pressed }) => [
+              style={[
                 styles.row,
                 i > 0 && styles.rowDivider,
-                pressed && !action.disabled && styles.rowPressed,
                 action.disabled && { opacity: 0.35 },
               ]}
             >
@@ -91,17 +93,19 @@ export function ActionSheet({
               {action.hint != null && (
                 <Text style={[t.monoValue, styles.hint]}>{action.hint}</Text>
               )}
-            </Pressable>
+            </AnimatedPressable>
           ))}
 
-          <Pressable
+          <AnimatedPressable
             onPress={onClose}
             accessibilityRole="button"
             accessibilityLabel="Cancel"
+            haptic={false}
+            toOpacity={0.5}
             style={[styles.row, styles.cancel, { marginBottom: insets.bottom }]}
           >
             <Text style={[t.exerciseRow, styles.label, { color: color.inkMuted }]}>Cancel</Text>
-          </Pressable>
+          </AnimatedPressable>
         </Pressable>
       </Pressable>
     </Modal>
@@ -132,7 +136,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   rowDivider: { borderTopWidth: 1, borderTopColor: color.divider },
-  rowPressed: { opacity: 0.5 },
   label: { color: color.ink, fontSize: 15 },
   hint: { color: color.inkGhost, marginTop: 3 },
   cancel: {

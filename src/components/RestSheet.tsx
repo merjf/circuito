@@ -12,9 +12,10 @@
  * An absolutely-positioned view inside the screen is the right shape.
  */
 
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { AnimatedPressable } from '@/components/ui';
 import { formatClock } from '@/domain/duration';
 import { REST_ADJUST_SECONDS } from '@/runner/useRestTimer';
 import { color, radius, space } from '@/theme/tokens';
@@ -52,35 +53,35 @@ export function RestSheet({
           <Text style={[t.statFigure, styles.clock]}>{formatClock(remaining)}</Text>
         </View>
 
-        <Pressable
+        <AnimatedPressable
           onPress={() => onAdjust(-REST_ADJUST_SECONDS)}
           accessibilityRole="button"
           accessibilityLabel={`Take ${REST_ADJUST_SECONDS} seconds off this rest`}
           hitSlop={8}
-          style={({ pressed }) => [styles.button, pressed && styles.pressed]}
+          style={styles.button}
         >
           <Text style={[t.monoLabel, { color: color.ink }]}>{`−${REST_ADJUST_SECONDS}s`}</Text>
-        </Pressable>
+        </AnimatedPressable>
 
-        <Pressable
+        <AnimatedPressable
           onPress={() => onAdjust(REST_ADJUST_SECONDS)}
           accessibilityRole="button"
           accessibilityLabel={`Add ${REST_ADJUST_SECONDS} seconds to this rest`}
           hitSlop={8}
-          style={({ pressed }) => [styles.button, pressed && styles.pressed]}
+          style={styles.button}
         >
           <Text style={[t.monoLabel, { color: color.ink }]}>{`+${REST_ADJUST_SECONDS}s`}</Text>
-        </Pressable>
+        </AnimatedPressable>
 
-        <Pressable
+        <AnimatedPressable
           onPress={onSkip}
           accessibilityRole="button"
           accessibilityLabel="Skip the rest"
           hitSlop={8}
-          style={({ pressed }) => [styles.button, styles.skip, pressed && styles.pressed]}
+          style={[styles.button, styles.skip]}
         >
           <Text style={[t.monoLabel, { color: color.darkInk }]}>SKIP</Text>
-        </Pressable>
+        </AnimatedPressable>
       </View>
     </View>
   );
@@ -125,5 +126,4 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   skip: { backgroundColor: color.inkStrong, borderColor: color.inkStrong },
-  pressed: { opacity: 0.55 },
 });

@@ -95,6 +95,7 @@ describe('upNextMeta', () => {
   it('describes a rest by when it ends', () => {
     expect(upNextMeta(cue({ kind: 'rest', seconds: 20 }), undefined)).toBe('after 20s rest');
     expect(upNextMeta(cue({ kind: 'roundRest', seconds: 60 }), undefined)).toBe('after 60s rest');
+    expect(upNextMeta(cue({ kind: 'blockRest', seconds: 75 }), undefined)).toBe('after 75s rest');
   });
 
   it('says nothing much at the end of the session', () => {

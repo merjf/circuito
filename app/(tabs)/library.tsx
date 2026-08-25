@@ -347,7 +347,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.cardTight,
     backgroundColor: color.sunken,
     paddingHorizontal: 14,
-    fontFamily: 'Archivo_400Regular',
+    fontFamily: 'Inter_400Regular',
     fontSize: 14,
     color: color.ink,
   },

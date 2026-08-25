@@ -7,12 +7,11 @@
  * the 6 weights this app actually uses. The subpath imports below bundle only
  * those 6. If you add a weight, add its subpath here and to `theme/type.ts`.
  */
-import { Archivo_400Regular } from '@expo-google-fonts/archivo/400Regular';
-import { Archivo_500Medium } from '@expo-google-fonts/archivo/500Medium';
-import { Archivo_600SemiBold } from '@expo-google-fonts/archivo/600SemiBold';
-import { Archivo_700Bold } from '@expo-google-fonts/archivo/700Bold';
-import { IBMPlexMono_400Regular } from '@expo-google-fonts/ibm-plex-mono/400Regular';
-import { IBMPlexMono_500Medium } from '@expo-google-fonts/ibm-plex-mono/500Medium';
+import { Inter_400Regular } from '@expo-google-fonts/inter/400Regular';
+import { Inter_500Medium } from '@expo-google-fonts/inter/500Medium';
+import { Inter_600SemiBold } from '@expo-google-fonts/inter/600SemiBold';
+import { Inter_700Bold } from '@expo-google-fonts/inter/700Bold';
+import { Inter_800ExtraBold } from '@expo-google-fonts/inter/800ExtraBold';
 import { useFonts } from 'expo-font';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -28,12 +27,11 @@ import { color } from '@/theme/tokens';
 
 export default function RootLayout() {
   const [fontsLoaded] = useFonts({
-    Archivo_400Regular,
-    Archivo_500Medium,
-    Archivo_600SemiBold,
-    Archivo_700Bold,
-    IBMPlexMono_400Regular,
-    IBMPlexMono_500Medium,
+    Inter_400Regular,
+    Inter_500Medium,
+    Inter_600SemiBold,
+    Inter_700Bold,
+    Inter_800ExtraBold,
   });
   const [dbReady, setDbReady] = useState(false);
   const [dbError, setDbError] = useState<string | null>(null);
@@ -57,12 +55,12 @@ export default function RootLayout() {
         style={{ flex: 1, backgroundColor: color.darkBg }}
         contentContainerStyle={{ padding: 28, paddingTop: 96 }}
       >
-        <Text style={{ fontFamily: 'Archivo_600SemiBold', fontSize: 22, color: color.darkInk }}>
+        <Text style={{ fontFamily: 'Inter_700Bold', fontSize: 22, color: color.darkInk }}>
           The database could not be opened.
         </Text>
         <Text
           style={{
-            fontFamily: 'IBMPlexMono_400Regular',
+            fontFamily: 'Inter_400Regular',
             fontSize: 12,
             lineHeight: 19,
             color: color.darkInk2,
@@ -74,7 +72,7 @@ export default function RootLayout() {
         </Text>
         <Text
           style={{
-            fontFamily: 'Archivo_400Regular',
+            fontFamily: 'Inter_400Regular',
             fontSize: 13,
             lineHeight: 21,
             color: color.darkMuted,

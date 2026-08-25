@@ -57,6 +57,7 @@ import { gatedReadout, NOTHING, trimNumber, upNextMeta } from '@/runner/cueText'
 import { useCueSounds } from '@/runner/useCueSounds';
 import { useRunner, type RunnerState } from '@/runner/useRunner';
 import { useSessionNotification } from '@/runner/useSessionNotification';
+import { useConfirmedBack } from '@/hooks/useConfirmedBack';
 import { useSettings } from '@/hooks/useSettings';
 import { playerPalette, playerStateFor } from '@/theme/playerPalette';
 import { color, radius, size, space, transition } from '@/theme/tokens';
@@ -184,6 +185,24 @@ function Player({
     { autoStart: true },
   );
 
+  // `_layout.tsx` disables the iOS swipe-back gesture on this screen so
+  // leaving mid-session always goes through the dialog below — but that
+  // setting has no effect on Android's hardware/gesture back button, which
+  // fires through a separate OS-level event. Without this, back on Android
+  // popped the screen directly, with no prompt and no guarantee `save`/
+  // `savePartial` ever ran. Same pause-then-prompt behaviour as the ×
+  // press, off once the runner has already finished and is navigating away.
+  //
+  // `useCallback`, not an inline closure: this screen re-renders once a
+  // second off the runner's own tick, and a new function identity every
+  // render would tear down and re-add the native `BackHandler` listener at
+  // the same 1Hz.
+  const onHardwareBack = useCallback(() => {
+    if (!runner.isPaused) runner.toggle();
+    setLeaving(true);
+  }, [runner]);
+  useConfirmedBack(!runner.finished, onHardwareBack);
+
   // The warning state is new: the work screen changes colour for the final
   // lead-in seconds. It does not apply to a gated cue, which has no known end
   // to count down to — same reason its warning sound does not fire.
@@ -223,6 +242,8 @@ function Player({
         ? 'Get ready'
         : runner.cue?.kind === 'roundRest'
           ? `Round ${runner.cue.round} done`
+          : runner.cue?.kind === 'blockRest'
+            ? 'Block complete'
           : 'Rest';
 
   const contextLabel =
@@ -239,6 +260,8 @@ function Player({
       ? (nextExercise?.name ?? 'Exercise')
       : runner.next.kind === 'roundRest'
         ? 'Round rest'
+        : runner.next.kind === 'blockRest'
+          ? 'Block rest'
         : 'Rest';
 
   const nextMeta = upNextMeta(runner.next, nextExercise?.type);

@@ -22,7 +22,6 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import {
   LayoutAnimation,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -35,7 +34,9 @@ import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { DraggableList } from '@/components/DraggableList';
 import { ExercisePicker } from '@/components/ExercisePicker';
 import { StepEditSheet, type StepEditContext } from '@/components/StepEditSheet';
-import { Card, MiniStepper, MonoLabel, SaveButton, Stepper, TypeTag } from '@/components/ui';
+import { ValueEditSheet, type ValueEditContext } from '@/components/ValueEditSheet';
+import type { ValueEditTarget } from '@/domain/valueEditTarget';
+import { AnimatedPressable, Card, MiniStepper, MonoLabel, SaveButton, TypeTag } from '@/components/ui';
 import { getTraining, listExercises, saveTraining } from '@/db/repo';
 import {
   blockSeconds,
@@ -78,6 +79,7 @@ function emptyTraining(): Training {
         label: 'Block A',
         repeat: 1,
         restBetweenRoundsSeconds: 60,
+        restAfterBlockSeconds: 0,
         steps: [],
       },
     ],
@@ -97,6 +99,20 @@ export default function BuilderScreen() {
   const [pickingFor, setPickingFor] = useState<string | null>(null);
   const [blockToDelete, setBlockToDelete] = useState<Block | null>(null);
   const [problemsShown, setProblemsShown] = useState(false);
+  // Holds the actual thrown message, not just whether saving failed —
+  // temporary diagnostic for the "Save button does nothing / fails"
+  // report so the real cause shows on-device instead of only in Metro
+  // logs, which are not available once the app is out of a dev build.
+  const [saveError, setSaveError] = useState<string | null>(null);
+  // The single bottom sheet every inline −/+ in this screen now opens
+  // instead of stepping in place — Prepare, a block's round count, round
+  // rest, block rest, and (via `StepRow`) each exercise's Time/Rest/Reps/Km.
+  //
+  // Holds only WHICH field is open (`ValueEditTarget`), not its resolved
+  // value/onChange — `valueEditContext` below derives those fresh from
+  // `draft` on every render, the same way `editContext` derives `StepEdit-
+  // Sheet`'s context from `editing`. See `domain/valueEditTarget.ts`.
+  const [valueEdit, setValueEdit] = useState<ValueEditTarget | null>(null);
   // Derived rather than stored: the builder already holds the exercises, and a
   // second copy would be one more thing to keep in step.
   const types = useMemo(() => exerciseTypesOf(exercises.values()), [exercises]);
@@ -149,6 +165,7 @@ export default function BuilderScreen() {
           label: `Block ${BLOCK_LABELS[draft.blocks.length] ?? draft.blocks.length + 1}`,
           repeat: 1,
           restBetweenRoundsSeconds: 60,
+          restAfterBlockSeconds: 0,
           steps: [],
         },
       ],
@@ -190,8 +207,23 @@ export default function BuilderScreen() {
       setProblemsShown(true);
       return;
     }
-    await saveTraining({ ...draft, updatedAt: new Date().toISOString() });
-    router.back();
+    try {
+      await saveTraining({ ...draft, updatedAt: new Date().toISOString() });
+      router.back();
+    } catch (err) {
+      // Previously unhandled: a thrown promise here left the Save button
+      // looking like it did nothing — no navigation, no feedback, the error
+      // visible only in Metro/device logs. Surface it instead of failing
+      // silently (bug report: "Save button in edit training page does not
+      // work").
+      //
+      // The message itself is shown in the dialog below (bug report: "Save
+      // gives me this error" with no detail attached) — this is meant to be
+      // temporary, just enough to see the real cause on-device. Once that's
+      // fixed, this can go back to a generic message.
+      console.error('saveTraining failed', err);
+      setSaveError(err instanceof Error ? err.message : String(err));
+    }
   };
 
   const editContext: StepEditContext | null = (() => {
@@ -216,12 +248,128 @@ export default function BuilderScreen() {
     };
   })();
 
+  // Same shape as `editContext` above, for the same reason: derived fresh
+  // from `draft` on every render off nothing but WHICH field is open, so the
+  // sheet's stepper and the field behind it can never drift apart.
+  const valueEditContext: ValueEditContext | null = (() => {
+    if (!valueEdit) return null;
+
+    if (valueEdit.kind === 'prepare') {
+      return {
+        label: 'Prepare',
+        value: draft.prepareSeconds,
+        step: LIMITS.secondsIncrement,
+        min: 0,
+        onChange: (prepareSeconds: number) => patch({ prepareSeconds }),
+        format: (v: number) => `${v}s`,
+      };
+    }
+
+    const block = draft.blocks.find((b) => b.id === valueEdit.blockId);
+    if (!block) return null;
+
+    if (valueEdit.kind === 'blockRepeat') {
+      return {
+        label: `${block.label} rounds`,
+        value: block.repeat,
+        step: LIMITS.repeatIncrement,
+        min: LIMITS.minRepeat,
+        max: 20,
+        onChange: (repeat: number) =>
+          patchBlock(block.id, {
+            repeat,
+            steps: block.steps.map((s) => reconcileTargets(s, repeat)),
+          }),
+        format: (v: number) => `×${v}`,
+      };
+    }
+
+    if (valueEdit.kind === 'roundRest') {
+      return {
+        label: 'Rest between rounds',
+        value: block.restBetweenRoundsSeconds,
+        step: LIMITS.secondsIncrement,
+        min: 0,
+        onChange: (restBetweenRoundsSeconds: number) =>
+          patchBlock(block.id, { restBetweenRoundsSeconds }),
+        format: (v: number) => `${v}s`,
+      };
+    }
+
+    if (valueEdit.kind === 'blockRest') {
+      const blockIndex = draft.blocks.findIndex((b) => b.id === block.id);
+      const nextBlockLabel = draft.blocks[blockIndex + 1]?.label ?? '';
+      return {
+        label: `Rest before ${nextBlockLabel}`,
+        value: block.restAfterBlockSeconds ?? 0,
+        step: LIMITS.secondsIncrement,
+        min: 0,
+        onChange: (restAfterBlockSeconds: number) =>
+          patchBlock(block.id, { restAfterBlockSeconds }),
+        format: (v: number) => `${v}s`,
+      };
+    }
+
+    // The four remaining kinds are all step-level.
+    const step = block.steps.find((s) => s.id === valueEdit.stepId);
+    if (!step) return null;
+    const name = exercises.get(step.exerciseId)?.name ?? 'Exercise';
+
+    if (valueEdit.kind === 'stepTime') {
+      return {
+        label: `${name} · Time`,
+        value: step.workSeconds,
+        step: LIMITS.secondsIncrement,
+        min: LIMITS.minWorkSeconds,
+        onChange: (workSeconds: number) => patchStep(block.id, step.id, { ...step, workSeconds }),
+        format: (v: number) => `${v}s`,
+      };
+    }
+
+    if (valueEdit.kind === 'stepRest') {
+      return {
+        label: `${name} · Rest after`,
+        value: step.restAfterSeconds,
+        step: LIMITS.secondsIncrement,
+        min: LIMITS.minRestSeconds,
+        onChange: (restAfterSeconds: number) =>
+          patchStep(block.id, step.id, { ...step, restAfterSeconds }),
+        format: (v: number) => `${v}s`,
+      };
+    }
+
+    if (valueEdit.kind === 'stepReps') {
+      return {
+        label: `${name} · Target reps`,
+        value: repsAt(step, 1) ?? 0,
+        step: LIMITS.repsIncrement,
+        min: 0,
+        max: 99,
+        onChange: (v: number) =>
+          patchStep(block.id, step.id, withUniformReps(step, v === 0 ? undefined : v)),
+        format: (v: number) => (v === 0 ? '—' : String(v)),
+      };
+    }
+
+    // stepDistance
+    return {
+      label: `${name} · Distance`,
+      value: distanceAt(step, 1) ?? 0,
+      step: 0.05,
+      min: 0,
+      max: 100,
+      onChange: (v: number) =>
+        patchStep(block.id, step.id, withUniformDistance(step, v === 0 ? undefined : v)),
+      format: (v: number) => (v === 0 ? '—' : String(Number(v.toFixed(2)))),
+    };
+  })();
+
   return (
     <View style={{ flex: 1, backgroundColor: color.canvas }}>
       <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
-        <Pressable onPress={() => router.back()} hitSlop={12}>
+        <AnimatedPressable onPress={() => router.back()} hitSlop={12} haptic={false} toOpacity={0.5}>
           <MonoLabel tone={color.inkMuted}>Cancel</MonoLabel>
-        </Pressable>
+        </AnimatedPressable>
         <Text style={[t.exerciseRow, { color: color.ink, fontSize: 14 }]}>
           {id === 'new' ? 'New training' : 'Edit training'}
         </Text>
@@ -252,19 +400,18 @@ export default function BuilderScreen() {
           {/* Prepare is always offered: any training can be run hands-free,
               and the countdown before the first step is the one number that
               belongs to the training rather than to any exercise in it. */}
-          <View style={styles.prepareRow}>
+          <AnimatedPressable
+            style={styles.prepareRow}
+            haptic={false}
+            toOpacity={0.7}
+            onPress={() => setValueEdit({ kind: 'prepare' })}
+          >
             <MonoLabel tone={color.inkMuted}>Prepare</MonoLabel>
-            <Stepper
-              value={draft.prepareSeconds}
-              step={LIMITS.secondsIncrement}
-              min={0}
-              onChange={(prepareSeconds) => patch({ prepareSeconds })}
-              format={(v) => `${v}s`}
-            />
-          </View>
+            <Text style={[t.monoValue, { color: color.ink }]}>{`${draft.prepareSeconds}s`}</Text>
+          </AnimatedPressable>
         </Card>
 
-        {draft.blocks.map((block) => (
+        {draft.blocks.map((block, index) => (
           <BlockCard
             key={block.id}
             block={block}
@@ -280,30 +427,19 @@ export default function BuilderScreen() {
                 return next;
               })
             }
-            // Changing the round count reconciles every per-round
-            // prescription in the block on the spot. Leaving them to fail
-            // validation instead would surface the error on Save, far from
-            // the stepper that caused it (`PLAN_hevy_integration.md` R7).
-            onRepeat={(repeat) =>
-              patchBlock(block.id, {
-                repeat,
-                steps: block.steps.map((s) => reconcileTargets(s, repeat)),
-              })
-            }
-            onRoundRest={(restBetweenRoundsSeconds) =>
-              patchBlock(block.id, { restBetweenRoundsSeconds })
-            }
+            nextBlockLabel={draft.blocks[index + 1]?.label}
             onRemoveBlock={() => setBlockToDelete(block)}
             onEditStep={(stepId) => setEditing({ blockId: block.id, stepId })}
             onReorderStep={(from, to) => reorderStep(block.id, from, to)}
             onPatchStep={(step) => patchStep(block.id, step.id, step)}
             onAdd={() => setPickingFor(block.id)}
+            onOpenValue={setValueEdit}
           />
         ))}
 
-        <Pressable style={styles.addBlock} onPress={addBlock}>
+        <AnimatedPressable style={styles.addBlock} haptic={false} toOpacity={0.6} onPress={addBlock}>
           <Text style={[t.exerciseRow, { color: color.inkMuted }]}>+ Add block</Text>
-        </Pressable>
+        </AnimatedPressable>
       </ScrollView>
 
       {/* Live total — both halves sit together on the right, so the eye lands
@@ -327,6 +463,8 @@ export default function BuilderScreen() {
         }}
         onClose={() => setEditing(null)}
       />
+
+      <ValueEditSheet context={valueEditContext} onClose={() => setValueEdit(null)} />
 
       <ExercisePicker
         visible={pickingFor !== null}
@@ -365,6 +503,15 @@ export default function BuilderScreen() {
         cancelLabel="OK"
         onCancel={() => setProblemsShown(false)}
       />
+
+      <ConfirmDialog
+        visible={saveError !== null}
+        title="Couldn't save"
+        message={`Something went wrong saving this training. Your changes are still here — try again.\n\n${saveError ?? ''}`}
+        actions={[]}
+        cancelLabel="OK"
+        onCancel={() => setSaveError(null)}
+      />
     </View>
   );
 }
@@ -376,13 +523,13 @@ function BlockCard({
   collapsed,
   canRemove,
   onToggle,
-  onRepeat,
-  onRoundRest,
+  nextBlockLabel,
   onRemoveBlock,
   onEditStep,
   onReorderStep,
   onPatchStep,
   onAdd,
+  onOpenValue,
 }: {
   block: Block;
   exerciseTypes: ExerciseTypes;
@@ -390,13 +537,13 @@ function BlockCard({
   collapsed: boolean;
   canRemove: boolean;
   onToggle: () => void;
-  onRepeat: (v: number) => void;
-  onRoundRest: (v: number) => void;
+  nextBlockLabel?: string;
   onRemoveBlock: () => void;
   onEditStep: (stepId: string) => void;
   onReorderStep: (from: number, to: number) => void;
   onPatchStep: (step: Step) => void;
   onAdd: () => void;
+  onOpenValue: (target: ValueEditTarget) => void;
 }) {
   return (
     <View style={styles.blockCard}>
@@ -404,36 +551,37 @@ function BlockCard({
         {/* 16px box, hitSlop raised so the effective target clears 44px
             (`PLAN_ui_fixes.md` B6) — sizes stay as drawn, only the tappable
             area around them grows. */}
-        <Pressable onPress={onToggle} hitSlop={16} style={styles.caret}>
+        <AnimatedPressable onPress={onToggle} hitSlop={16} haptic={false} toOpacity={0.5} style={styles.caret}>
           <Text style={{ color: color.inkMuted, fontSize: 12 }}>{collapsed ? '\u203A' : '\u2304'}</Text>
-        </Pressable>
+        </AnimatedPressable>
         <MonoLabel tone={color.ink} style={{ flex: 1 }}>
           {block.label}
         </MonoLabel>
-        <Stepper
-          value={block.repeat}
-          step={LIMITS.repeatIncrement}
-          min={LIMITS.minRepeat}
-          max={20}
-          onChange={onRepeat}
-          format={(v) => `\u00D7${v}`}
-        />
+        <AnimatedPressable
+          hitSlop={8}
+          haptic={false}
+          toOpacity={0.7}
+          style={styles.repeatTap}
+          onPress={() => onOpenValue({ kind: 'blockRepeat', blockId: block.id })}
+        >
+          <Text style={[t.monoValue, { color: color.ink }]}>{`\u00D7${block.repeat}`}</Text>
+        </AnimatedPressable>
         {/* Delete is a single \u00D7 rather than an overflow menu: with one item
             behind it, the menu was a tap that only ever led to one place. */}
         {canRemove && (
-          <Pressable onPress={onRemoveBlock} hitSlop={12} style={styles.blockClose}>
+          <AnimatedPressable onPress={onRemoveBlock} hitSlop={12} toOpacity={0.6} style={styles.blockClose}>
             <Text style={styles.blockCloseGlyph}>×</Text>
-          </Pressable>
+          </AnimatedPressable>
         )}
       </View>
 
       {collapsed ? (
-        <Pressable style={styles.collapsedRow} onPress={onToggle}>
+        <AnimatedPressable style={styles.collapsedRow} haptic={false} toOpacity={0.7} onPress={onToggle}>
           <Text style={[t.monoValue, { color: color.inkFaint }]}>
             {block.steps.length} {block.steps.length === 1 ? 'exercise' : 'exercises'} · ×
             {block.repeat} · {formatQueueDuration(blockSeconds(block, exerciseTypes))}
           </Text>
-        </Pressable>
+        </AnimatedPressable>
       ) : (
         <>
           <DraggableList
@@ -450,6 +598,7 @@ function BlockCard({
                 dragging={dragging}
                 onEdit={() => onEditStep(step.id)}
                 onPatch={onPatchStep}
+                onOpenValue={(kind) => onOpenValue({ kind, blockId: block.id, stepId: step.id })}
               />
             )}
           />
@@ -458,23 +607,38 @@ function BlockCard({
             <Text style={[t.body, styles.emptyBlock]}>No exercises in this block yet.</Text>
           )}
 
-          <Pressable style={styles.addExercise} onPress={onAdd}>
+          <AnimatedPressable style={styles.addExercise} haptic={false} toOpacity={0.6} onPress={onAdd}>
             <Text style={[t.exerciseRow, { color: color.inkMuted }]}>
               + Add exercise from library
             </Text>
-          </Pressable>
+          </AnimatedPressable>
 
           {block.repeat > 1 && (
-            <View style={styles.roundRest}>
+            <AnimatedPressable
+              style={styles.roundRest}
+              haptic={false}
+              toOpacity={0.7}
+              onPress={() => onOpenValue({ kind: 'roundRest', blockId: block.id })}
+            >
               <MonoLabel tone={color.inkMuted}>Rest between rounds</MonoLabel>
-              <Stepper
-                value={block.restBetweenRoundsSeconds}
-                step={LIMITS.secondsIncrement}
-                min={0}
-                onChange={onRoundRest}
-                format={(v) => `${v}s`}
-              />
-            </View>
+              <Text style={[t.monoValue, { color: color.ink }]}>
+                {`${block.restBetweenRoundsSeconds}s`}
+              </Text>
+            </AnimatedPressable>
+          )}
+
+          {nextBlockLabel && (
+            <AnimatedPressable
+              style={styles.roundRest}
+              haptic={false}
+              toOpacity={0.7}
+              onPress={() => onOpenValue({ kind: 'blockRest', blockId: block.id })}
+            >
+              <MonoLabel tone={color.inkMuted}>Rest before {nextBlockLabel}</MonoLabel>
+              <Text style={[t.monoValue, { color: color.ink }]}>
+                {`${block.restAfterBlockSeconds ?? 0}s`}
+              </Text>
+            </AnimatedPressable>
           )}
         </>
       )}
@@ -491,6 +655,7 @@ function StepRow({
   dragging,
   onEdit,
   onPatch,
+  onOpenValue,
 }: {
   step: Step;
   type: ExerciseType | undefined;
@@ -500,6 +665,7 @@ function StepRow({
   dragging: boolean;
   onEdit: () => void;
   onPatch: (step: Step) => void;
+  onOpenValue: (kind: 'stepTime' | 'stepRest' | 'stepReps' | 'stepDistance') => void;
 }) {
   // Which fields this row shows is the EXERCISE's business now. One table,
   // read here and in the edit sheet, so a plank is never asked for reps and a
@@ -511,12 +677,12 @@ function StepRow({
     <View style={[styles.stepRow, dragging && styles.stepRowDragging]}>
       <View style={styles.stepTop}>
         {handle}
-        <Pressable style={styles.stepNameRow} onPress={onEdit}>
+        <AnimatedPressable style={styles.stepNameRow} haptic={false} toOpacity={0.7} onPress={onEdit}>
           <Text style={[t.exerciseRow, { color: color.ink, flexShrink: 1 }]} numberOfLines={2}>
             {name}
           </Text>
           <TypeTag label={TYPE_COPY[resolved].chips.join(' · ')} />
-        </Pressable>
+        </AnimatedPressable>
       </View>
 
       <View style={styles.miniFields}>
@@ -535,6 +701,7 @@ function StepRow({
           min={LIMITS.minWorkSeconds}
           onChange={(workSeconds) => onPatch({ ...step, workSeconds })}
           format={(v) => `${v}s`}
+          onOpen={() => onOpenValue('stepTime')}
         />
         )}
         {/* The last step of a round runs straight into the round rest, so its
@@ -547,6 +714,7 @@ function StepRow({
           disabled={isLast}
           onChange={(restAfterSeconds) => onPatch({ ...step, restAfterSeconds })}
           format={(v) => `${v}s`}
+          onOpen={() => onOpenValue('stepRest')}
         />
         {fields.reps && (
         <MiniStepper
@@ -563,6 +731,7 @@ function StepRow({
           max={99}
           onChange={(v) => onPatch(withUniformReps(step, v === 0 ? undefined : v))}
           format={(v) => (v === 0 ? '—' : String(v))}
+          onOpen={targetsVary(step) ? undefined : () => onOpenValue('stepReps')}
         />
         )}
         {fields.distance && (
@@ -574,6 +743,7 @@ function StepRow({
           max={100}
           onChange={(v) => onPatch(withUniformDistance(step, v === 0 ? undefined : v))}
           format={(v) => (v === 0 ? '—' : String(Number(v.toFixed(2))))}
+          onOpen={() => onOpenValue('stepDistance')}
         />
         )}
       </View>
@@ -592,7 +762,7 @@ const styles = StyleSheet.create({
     borderBottomColor: color.divider,
   },
   nameInput: {
-    fontFamily: 'Archivo_600SemiBold',
+    fontFamily: 'Inter_700Bold',
     fontSize: 17,
     color: color.ink,
     padding: 0,
@@ -629,6 +799,9 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   caret: { width: 16 },
+  // The block's round count (×N) — a tap target opening `ValueEditSheet`,
+  // same hitSlop-padding idea as the caret next to it.
+  repeatTap: { paddingHorizontal: 4, paddingVertical: 6 },
   // Soft-red, rounded and bordered like every other delete control
   // (`PLAN_ui_fixes.md` UI pass) — this used to be a bare 24px glyph with no
   // visible shape at all.
@@ -643,7 +816,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   blockCloseGlyph: {
-    fontFamily: 'Archivo_500Medium',
+    fontFamily: 'Inter_500Medium',
     fontSize: 16,
     lineHeight: 19,
     color: color.softRedIcon,

@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "skipLibCheck": true,
+    "incremental": false
+  },
+  "include": [
+    "app/training/[id]/builder.tsx",
+    "app/exercise/[id].tsx",
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "expo-env.d.ts"
+  ]
+}

@@ -91,17 +91,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 14,
     backgroundColor: color.surface,
-    borderRadius: radius.cardTight,
-    borderWidth: 1,
-    borderColor: color.hairline,
+    borderRadius: 0,
     paddingHorizontal: 14,
     paddingVertical: 10,
-    marginBottom: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: color.divider,
   },
-  rowActive: { borderColor: color.inkStrong, backgroundColor: color.blockHeader },
+  rowActive: { backgroundColor: color.accentSoft },
   // Square and transparent, sitting on the row's own background rather than in
   // a tile of its own — a framed thumbnail would compete with the exercise
   // media everywhere else in the app.
-  art: { width: 44, height: 44 },
-  tick: { fontFamily: 'Archivo_600SemiBold', fontSize: 15, color: color.softGreenIcon },
+  art: { width: 38, height: 38, backgroundColor: color.sunken, borderRadius: radius.fieldTight },
+  tick: { fontFamily: 'Inter_700Bold', fontSize: 15, color: color.accent },
 });

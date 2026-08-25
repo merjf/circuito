@@ -20,7 +20,7 @@
  */
 
 import { useEffect, useMemo, useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Modal, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { listExercises } from '@/db/repo';
@@ -28,7 +28,7 @@ import type { Exercise } from '@/domain/types';
 import { color, radius, space } from '@/theme/tokens';
 import { type as t } from '@/theme/type';
 import { TYPE_COPY } from '@/domain/exerciseType';
-import { MonoLabel, PrimaryButton, Thumbnail, TypeTag } from './ui';
+import { AnimatedPressable, MonoLabel, PrimaryButton, Thumbnail, TypeTag } from './ui';
 
 export function ExercisePicker({
   visible,
@@ -81,9 +81,9 @@ export function ExercisePicker({
       <View style={{ flex: 1, backgroundColor: color.canvas, paddingTop: insets.top + 12 }}>
         <View style={styles.header}>
           <Text style={[t.detailTitle, { color: color.ink }]}>Add exercises</Text>
-          <Pressable onPress={onClose} hitSlop={12}>
+          <AnimatedPressable onPress={onClose} hitSlop={12} haptic={false} toOpacity={0.5}>
             <MonoLabel tone={color.inkMuted}>Cancel</MonoLabel>
-          </Pressable>
+          </AnimatedPressable>
         </View>
 
         <TextInput
@@ -110,12 +110,15 @@ export function ExercisePicker({
             const order = picked.indexOf(exercise.id);
             const selected = order >= 0;
             return (
-              <Pressable
+              <AnimatedPressable
                 key={exercise.id}
                 style={[styles.row, selected && styles.rowSelected]}
                 accessibilityRole="checkbox"
                 accessibilityState={{ checked: selected }}
                 accessibilityLabel={exercise.name}
+                haptic={false}
+                toScale={0.98}
+                toOpacity={0.85}
                 onPress={() => toggle(exercise.id)}
               >
                 <Thumbnail uri={exercise.mediaUrl} type={exercise.mediaType} size={52} />
@@ -149,7 +152,7 @@ export function ExercisePicker({
                 <View style={[styles.check, selected && styles.checkOn]}>
                   {selected && <Text style={styles.checkLabel}>{order + 1}</Text>}
                 </View>
-              </Pressable>
+              </AnimatedPressable>
             );
           })}
         </ScrollView>
@@ -183,7 +186,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.cardTight,
     backgroundColor: color.sunken,
     paddingHorizontal: 14,
-    fontFamily: 'Archivo_400Regular',
+    fontFamily: 'Inter_400Regular',
     fontSize: 14,
     color: color.ink,
   },
@@ -211,7 +214,7 @@ const styles = StyleSheet.create({
   },
   checkOn: { backgroundColor: color.inkStrong, borderColor: color.inkStrong },
   checkLabel: {
-    fontFamily: 'IBMPlexMono_500Medium',
+    fontFamily: 'Inter_600SemiBold',
     fontSize: 11,
     color: color.darkInk,
   },

@@ -171,7 +171,7 @@ export default function SessionSummaryScreen() {
         <View style={{ marginTop: space.xxl }}>
           <MonoLabel>Work vs rest</MonoLabel>
           <View style={styles.splitBar}>
-            <View style={{ flex: Math.max(session.workSeconds, 1), backgroundColor: color.ink }} />
+            <View style={{ flex: Math.max(session.workSeconds, 1), backgroundColor: color.accent }} />
             <View style={{ flex: Math.max(session.restSeconds, 1), backgroundColor: color.track }} />
           </View>
           <View style={styles.splitLabels}>
@@ -339,7 +339,7 @@ const styles = StyleSheet.create({
     width: 46,
     height: 46,
     borderRadius: 23,
-    backgroundColor: color.inkStrong,
+    backgroundColor: color.accent,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -396,7 +396,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  deleteLabel: { fontFamily: 'Archivo_600SemiBold', fontSize: 14, color: color.softRedIcon },
+  deleteLabel: { fontFamily: 'Inter_700Bold', fontSize: 14, color: color.softRedIcon },
   // Off-canvas rather than unmounted: `captureRef` needs real, laid-out
   // content to snapshot. `left` keeps it clear of the screen at any width.
   offscreen: { position: 'absolute', top: -9999, left: -9999 },

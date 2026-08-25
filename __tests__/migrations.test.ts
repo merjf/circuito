@@ -441,3 +441,30 @@ describe('migrations — v5 backfills the per-round prescription', () => {
     expect(JSON.parse(targetsOf(db, 'st_1')!)).toHaveLength(3);
   });
 });
+
+describe('migrations — v7 adds inter-block rest without changing existing workouts', () => {
+  it('defaults existing blocks to zero seconds', async () => {
+    const { db, adapter } = open();
+    await runAll(adapter, 0, 6);
+    db.exec(`
+      INSERT INTO trainings (id,name,prepareSeconds,createdAt,updatedAt)
+      VALUES ('tr-7','Existing',10,'t0','t0');
+      INSERT INTO blocks (id,trainingId,label,repeat,restBetweenRoundsSeconds,position,updatedAt)
+      VALUES ('bl-7','tr-7','Block A',1,0,0,'t0');
+    `);
+
+    await MIGRATIONS[6]!(adapter);
+    expect(columnsOf(db, 'blocks')).toContain('restAfterBlockSeconds');
+    const row = db.prepare("SELECT restAfterBlockSeconds FROM blocks WHERE id = 'bl-7'").get() as {
+      restAfterBlockSeconds: number;
+    };
+    expect(row.restAfterBlockSeconds).toBe(0);
+  });
+
+  it('is safe to rerun after a partial migration', async () => {
+    const { db, adapter } = open();
+    await runAll(adapter, 0, 6);
+    db.exec('ALTER TABLE blocks ADD COLUMN restAfterBlockSeconds INTEGER NOT NULL DEFAULT 0;');
+    await expect(MIGRATIONS[6]!(adapter)).resolves.not.toThrow();
+  });
+});

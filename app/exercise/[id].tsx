@@ -20,11 +20,22 @@ import * as ImagePicker from 'expo-image-picker';
 import { Directory, File, Paths } from 'expo-file-system';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import {
+  Image,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { ValueEditSheet, type ValueEditContext } from '@/components/ValueEditSheet';
 import {
+  AnimatedPressable,
   BinButton,
   FilterPill,
   MediaPlaceholder,
@@ -85,17 +96,23 @@ import { type as t } from '@/theme/type';
 /**
  * Keep the weight pair coherent.
  *
- * A count without a weight is meaningless — "2 of nothing" — and a weight with
- * no count reads as a single one. So clearing the kilograms clears both, and
- * naming a weight without a count implies one.
+ * Count is the prerequisite now — the "Each (kg)" field is disabled in the UI
+ * until a count is set — so a count without a weight is a normal in-progress
+ * state, not an error, while a weight can never exist without a count behind
+ * it. Clearing the count back to zero clears the weight too: with kg gated on
+ * count in the UI, a kg value orphaned by a zeroed-out count could never be
+ * edited or cleared again otherwise.
  */
 function withWeight(
   exercise: Exercise,
   kg: number | undefined,
   count: number | undefined,
 ): Exercise {
-  if (!kg) return { ...exercise, defaultWeightKg: undefined, defaultWeightCount: undefined };
-  return { ...exercise, defaultWeightKg: kg, defaultWeightCount: count && count > 0 ? count : 1 };
+  if (!count || count <= 0) {
+    return { ...exercise, defaultWeightKg: undefined, defaultWeightCount: undefined };
+  }
+  if (!kg) return { ...exercise, defaultWeightKg: undefined, defaultWeightCount: count };
+  return { ...exercise, defaultWeightKg: kg, defaultWeightCount: count };
 }
 
 /** Reads the pair back the way it will appear on a step: "2 × 3 kg". */
@@ -129,6 +146,16 @@ export default function ExerciseDetailScreen() {
   const [usedIn, setUsedIn] = useState<Training[]>([]);
   const [confirm, setConfirm] = useState<'delete' | 'blocked' | 'removeMedia' | null>(null);
   const [blockingTrainings, setBlockingTrainings] = useState<Training[]>([]);
+  // The shared bottom sheet the Weights fields open instead of stepping in
+  // place inline — same `ValueEditSheet` the training builder uses.
+  //
+  // Holds only WHICH field is open, not its resolved value/onChange: the
+  // context below is derived fresh on every render from the live `exercise`,
+  // the same way `builder.tsx`'s `editContext` is derived from `draft`. A
+  // snapshot object captured once at open time went stale after the first
+  // tap — the sheet kept showing/writing the number from the moment it
+  // opened, one step behind whatever `persist` had already saved.
+  const [valueEdit, setValueEdit] = useState<'weightCount' | 'weightKg' | null>(null);
   const [mediaError, setMediaError] = useState(false);
   const [heroImageFailed, setHeroImageFailed] = useState(false);
   const [tagDraft, setTagDraft] = useState('');
@@ -295,20 +322,64 @@ export default function ExerciseDetailScreen() {
     setConfirm(blocking.length > 0 ? 'blocked' : 'delete');
   };
 
+  // Recomputed on every render from the live `exercise`, not stored — see the
+  // comment on `valueEdit` above.
+  const weightEditContext: ValueEditContext | null =
+    valueEdit === 'weightCount'
+      ? {
+          label: 'How many weights',
+          value: exercise.defaultWeightCount ?? 0,
+          step: 1,
+          min: 0,
+          max: 10,
+          format: (v) => (v === 0 ? '—' : String(v)),
+          onChange: (count) => persist(withWeight(exercise, exercise.defaultWeightKg, count)),
+        }
+      : valueEdit === 'weightKg'
+        ? {
+            label: 'Weight each (kg)',
+            value: exercise.defaultWeightKg ?? 0,
+            step: 1,
+            min: 0,
+            max: 100,
+            format: (v) => (v === 0 ? '—' : String(v)),
+            onChange: (kg) => persist(withWeight(exercise, kg, exercise.defaultWeightCount)),
+          }
+        : null;
+
   return (
+    // The tag input sits at the bottom of a long form; without real
+    // keyboard avoidance the keyboard just covers it on focus with nothing
+    // to compensate — the "I can't see the input box" report.
+    //
+    // `automaticallyAdjustKeyboardInsets` alone (the previous fix here) is
+    // iOS-only — it does nothing on Android, which this app ships to (see
+    // the `android/` project). `KeyboardAvoidingView` covers both: iOS gets
+    // `padding`, which slides the whole scroller up under the keyboard the
+    // same way the old prop did; Android gets `height`, which shrinks the
+    // scroller so its own content still scrolls clear. `keyboardVerticalOffset`
+    // accounts for the safe-area top inset already added to the scroll
+    // content below, so the padding/height adjustment lines up with where
+    // the content actually starts rather than the raw screen edge.
+    <KeyboardAvoidingView
+      style={{ flex: 1 }}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top : 0}
+    >
     <ScrollView
       style={{ flex: 1, backgroundColor: color.canvas }}
       contentContainerStyle={{
         paddingTop: insets.top + 12,
         paddingHorizontal: space.gutter,
-        paddingBottom: space.xxl,
+        // Extra trailing room past the last field: `KeyboardAvoidingView`
+        // shrinks/offsets the whole scroller, but the tag input sits right
+        // at the bottom of the content, and the old `space.xxl` (26px) left
+        // almost nothing to scroll past it once the keyboard's own height
+        // was accounted for — it could still end up flush against the
+        // keyboard's top edge rather than clear of it.
+        paddingBottom: space.xxl + 220,
       }}
       keyboardShouldPersistTaps="handled"
-      // The tag input sits at the bottom of a long form; without this the
-      // keyboard just covers it on focus with no auto-scroll to compensate
-      // — exactly the "I can't see the input box" report
-      // (`PLAN_ui_fixes.md` UI pass).
-      automaticallyAdjustKeyboardInsets
     >
       <ScreenHeader
         onBack={() => router.back()}
@@ -349,7 +420,7 @@ export default function ExerciseDetailScreen() {
           button because removing media is a different, destructive action
           that a tap-anywhere box would otherwise trigger by accident
           (`PLAN_ui_fixes.md` UI pass). */}
-      <Pressable style={{ marginTop: space.m }} onPress={pickMedia}>
+      <AnimatedPressable style={{ marginTop: space.m }} haptic={false} toOpacity={0.85} onPress={pickMedia}>
         {/* A video URI piped into <Image> drew an empty box — the mock's
             "media" was never actually type-checked against what was stored
             (`PLAN_ui_fixes.md` A5). Only a photo with a URI that has not
@@ -384,16 +455,17 @@ export default function ExerciseDetailScreen() {
                 to the box behind it — the same pattern the bin buttons
                 nested in an onPress`d Card already rely on elsewhere
                 (e.g. the training list row). */}
-            <Pressable
+            <AnimatedPressable
               style={styles.circleActionRemove}
               hitSlop={10}
+              toOpacity={0.6}
               onPress={() => setConfirm('removeMedia')}
             >
               <Text style={styles.circleGlyphRemove}>×</Text>
-            </Pressable>
+            </AnimatedPressable>
           </View>
         )}
-      </Pressable>
+      </AnimatedPressable>
 
       <TextInput
         value={exercise.name}
@@ -494,6 +566,7 @@ export default function ExerciseDetailScreen() {
             onChange={(count) =>
               persist(withWeight(exercise, exercise.defaultWeightKg, count))
             }
+            onOpen={() => setValueEdit('weightCount')}
           />
           <MiniStepper
             label="Each (kg)"
@@ -501,8 +574,19 @@ export default function ExerciseDetailScreen() {
             step={1}
             min={0}
             max={100}
+            // Count is the prerequisite: "2 kg each" means nothing until you've
+            // said how many, so this field stays disabled — and reads its
+            // dedicated empty copy rather than "—", which otherwise looked
+            // identical to "set to zero" — until `defaultWeightCount` is set.
+            disabled={!exercise.defaultWeightCount}
+            disabledValue="Set count first"
             format={(v) => (v === 0 ? "—" : String(v))}
             onChange={(kg) => persist(withWeight(exercise, kg, exercise.defaultWeightCount))}
+            onOpen={
+              !exercise.defaultWeightCount
+                ? undefined
+                : () => setValueEdit('weightKg')
+            }
           />
         </View>
         <View style={{ marginTop: 8 }}>
@@ -518,16 +602,18 @@ export default function ExerciseDetailScreen() {
         {exercise.tags.length > 0 && (
           <View style={styles.chips}>
             {exercise.tags.map((tag) => (
-              <Pressable
+              <AnimatedPressable
                 key={tag}
                 style={styles.removableTag}
+                haptic={false}
+                toOpacity={0.6}
                 onPress={() =>
                   persist({ ...exercise, tags: exercise.tags.filter((x) => x !== tag) })
                 }
               >
                 <MonoLabel tone={color.inkMuted}>{tag}</MonoLabel>
                 <Text style={{ color: color.inkGhost, fontSize: 13 }}>×</Text>
-              </Pressable>
+              </AnimatedPressable>
             ))}
           </View>
         )}
@@ -543,14 +629,16 @@ export default function ExerciseDetailScreen() {
           return (
             <View style={[styles.chips, { marginTop: exercise.tags.length > 0 ? 8 : 12 }]}>
               {otherTags.map((tag) => (
-                <Pressable
+                <AnimatedPressable
                   key={tag}
                   style={styles.suggestedTag}
+                  haptic={false}
+                  toOpacity={0.6}
                   onPress={() => persist({ ...exercise, tags: [...exercise.tags, tag] })}
                 >
                   <MonoLabel tone={color.inkGhost}>{tag}</MonoLabel>
                   <Text style={{ color: color.inkGhost, fontSize: 13 }}>+</Text>
-                </Pressable>
+                </AnimatedPressable>
               ))}
             </View>
           );
@@ -594,6 +682,8 @@ export default function ExerciseDetailScreen() {
       )}
       </>
       )}
+
+      <ValueEditSheet context={weightEditContext} onClose={() => setValueEdit(null)} />
 
       <ConfirmDialog
         visible={confirm === 'removeMedia'}
@@ -650,6 +740,7 @@ export default function ExerciseDetailScreen() {
         onCancel={() => setMediaError(false)}
       />
     </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -774,7 +865,7 @@ function RecordsTab({ logs, loaded }: { logs: SetLog[]; loaded: boolean }) {
 const styles = StyleSheet.create({
   tabs: { flexDirection: 'row', gap: 8, marginTop: space.l },
   emptyTab: {
-    fontFamily: 'Archivo_400Regular',
+    fontFamily: 'Inter_400Regular',
     fontSize: 13,
     lineHeight: 21,
     color: color.inkFaint,
@@ -821,7 +912,7 @@ const styles = StyleSheet.create({
   },
   heroVideoBadgeGlyph: { color: color.darkInk, fontSize: 11, marginLeft: 1 },
   nameInput: {
-    fontFamily: 'Archivo_600SemiBold',
+    fontFamily: 'Inter_700Bold',
     fontSize: 20,
     lineHeight: 26,
     color: color.ink,
@@ -829,7 +920,7 @@ const styles = StyleSheet.create({
     padding: 0,
   },
   nameHint: {
-    fontFamily: 'Archivo_400Regular',
+    fontFamily: 'Inter_400Regular',
     fontSize: 11.5,
     color: color.inkGhost,
     marginTop: 6,
@@ -864,7 +955,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.cardTight,
     backgroundColor: color.sunken,
     paddingHorizontal: 14,
-    fontFamily: 'Archivo_400Regular',
+    fontFamily: 'Inter_400Regular',
     fontSize: 14,
     color: color.ink,
   },
@@ -874,10 +965,13 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
   note: {
-    fontFamily: 'Archivo_400Regular',
+    fontFamily: 'Inter_400Regular',
     fontSize: 14,
     lineHeight: 22,
-    color: color.inkMuted,
+    // Was `inkMuted` — the same grey as a field LABEL, so typed notes read as
+    // faded/disabled instead of as content. Placeholder stays muted via
+    // `placeholderTextColor` on the TextInput; only the typed value darkens.
+    color: color.ink,
     marginTop: 10,
     padding: 0,
     minHeight: 44,

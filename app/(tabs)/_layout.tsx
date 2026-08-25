@@ -95,7 +95,7 @@ function TabItem({
   focused: boolean;
   Icon: (props: IconProps) => ReactElement;
 }) {
-  const tone = focused ? color.ink : color.inkGhostest;
+  const tone = focused ? color.accent : color.inkGhostest;
   return (
     <View style={styles.item}>
       <Icon tone={tone} focused={focused} />

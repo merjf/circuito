@@ -135,7 +135,7 @@ const steps =
   };
 
 /** Bump for every migration and append to MIGRATIONS below. */
-export const SCHEMA_VERSION = 6;
+export const SCHEMA_VERSION = 7;
 
 export const MIGRATIONS: Migration[] = [
   // v1 — initial schema
@@ -445,4 +445,10 @@ export const MIGRATIONS: Migration[] = [
     // What a timed or distance set actually recorded.
     addColumns('set_logs', { seconds: 'REAL', distanceKm: 'REAL' }),
   ),
+
+  // v7 — rest after one block, before the next. This belongs to the preceding
+  // block, just as `restAfterSeconds` belongs to the preceding step. Zero is
+  // deliberately the migration default: existing workouts must keep the same
+  // timeline until their owner explicitly adds a transition rest.
+  addColumns('blocks', { restAfterBlockSeconds: 'INTEGER NOT NULL DEFAULT 0' }),
 ];

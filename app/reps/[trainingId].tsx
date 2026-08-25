@@ -96,6 +96,7 @@ import {
   type Step,
   type Training,
 } from '@/domain/types';
+import { useConfirmedBack } from '@/hooks/useConfirmedBack';
 import { useSettings } from '@/hooks/useSettings';
 import { useCueSounds } from '@/runner/useCueSounds';
 import { useRestTimer } from '@/runner/useRestTimer';
@@ -340,18 +341,40 @@ export default function RepsLoggerScreen() {
 
   const elapsedSeconds = (Date.now() - startedAt.current.getTime()) / 1000;
 
+  // `_layout.tsx` disables the iOS swipe-back gesture on this screen for the
+  // same reason the player's does — leaving mid-session should always go
+  // through the discard/save-partial prompt below. That setting has no
+  // effect on Android's hardware/gesture back button, which fires through a
+  // separate OS-level event and, unguarded, popped the screen directly with
+  // no prompt and no guarantee `finalise`/`discard` ever ran. Off once
+  // `finishing` is already true — a second back press mid-navigation (e.g.
+  // from the dialog's own buttons) should not fight the exit.
+  //
+  // `useCallback` with no deps: `setLeaving` is a stable setState identity,
+  // and this screen re-renders once a second off its own clock — a fresh
+  // closure every render would tear down and re-add the native
+  // `BackHandler` listener at the same 1Hz.
+  const onHardwareBack = useCallback(() => setLeaving(true), []);
+  useConfirmedBack(training !== null && !finishing.current, onHardwareBack);
+
   // ── Writing a set ────────────────────────────────────────────────────────
 
   const restSecondsFor = useCallback(
-    (step: Step, blockId: string): number => {
-      const block = training?.blocks.find((b) => b.id === blockId);
+    (step: Step, blockId: string, round: number): number => {
+      const blockIndex = training?.blocks.findIndex((b) => b.id === blockId) ?? -1;
+      const block = blockIndex >= 0 ? training!.blocks[blockIndex] : undefined;
       if (!block) return 0;
       const isLastOfRound = block.steps[block.steps.length - 1]?.id === step.id;
       // The plan's own rests, read back. The last step of a round runs into the
       // round rest and every other step into its own — the same rule the queue
       // plays, so a logged session rests where a hands-free one would (D8). No
       // new setting, no invented default.
-      return isLastOfRound ? block.restBetweenRoundsSeconds : step.restAfterSeconds;
+      if (!isLastOfRound) return step.restAfterSeconds;
+      if (round < Math.max(1, block.repeat)) return block.restBetweenRoundsSeconds;
+      const hasFollowingBlock = training!.blocks
+        .slice(blockIndex + 1)
+        .some((nextBlock) => nextBlock.steps.length > 0);
+      return hasFollowingBlock ? (block.restAfterBlockSeconds ?? 0) : 0;
     },
     [training],
   );
@@ -459,7 +482,7 @@ export default function RepsLoggerScreen() {
 
       // Drop sets are chained with no rest between them — that behaviour is
       // the reason the type is worth having at all, over and above the label.
-      if (args.type !== 'drop') startRest(restSecondsFor(args.step, args.blockId));
+      if (args.type !== 'drop') startRest(restSecondsFor(args.step, args.blockId, args.round));
     },
     [exercises, priorLogs, startRest, restSecondsFor, types],
   );
@@ -1192,7 +1215,7 @@ const styles = StyleSheet.create({
   },
   groupHeader: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   note: {
-    fontFamily: 'Archivo_400Regular',
+    fontFamily: 'Inter_400Regular',
     fontSize: 11.5,
     lineHeight: 16,
     color: color.inkFaint,
@@ -1228,7 +1251,7 @@ const styles = StyleSheet.create({
     backgroundColor: color.sunken,
     borderWidth: 1,
     borderColor: color.hairline,
-    fontFamily: 'IBMPlexMono_500Medium',
+    fontFamily: 'Inter_600SemiBold',
     fontSize: 13,
     color: color.ink,
     textAlign: 'center',
@@ -1245,7 +1268,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   checkOn: { backgroundColor: color.softGreen, borderColor: color.softGreenBorder },
-  checkGlyph: { fontFamily: 'Archivo_600SemiBold', fontSize: 15, color: color.softGreenIcon },
+  checkGlyph: { fontFamily: 'Inter_700Bold', fontSize: 15, color: color.softGreenIcon },
   addSet: { paddingVertical: 10 },
   sticky: {
     position: 'absolute',

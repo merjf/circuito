@@ -94,6 +94,59 @@ describe('buildQueue — arms circuit', () => {
   });
 });
 
+describe('buildQueue — rests between blocks', () => {
+  const twoBlocks: Training = {
+    id: 'two-blocks',
+    name: 'Two blocks',
+    prepareSeconds: 0,
+    createdAt: '',
+    updatedAt: '',
+    blocks: [
+      {
+        id: 'a',
+        label: 'Block A',
+        repeat: 1,
+        restBetweenRoundsSeconds: 0,
+        restAfterBlockSeconds: 75,
+        steps: [{ id: 'a-step', exerciseId: 'e', workSeconds: 30, restAfterSeconds: 0 }],
+      },
+      {
+        id: 'b',
+        label: 'Block B',
+        repeat: 1,
+        restBetweenRoundsSeconds: 0,
+        restAfterBlockSeconds: 90,
+        steps: [{ id: 'b-step', exerciseId: 'e', workSeconds: 40, restAfterSeconds: 0 }],
+      },
+    ],
+  };
+
+  it('places the preceding block’s rest between its last work cue and the next block', () => {
+    expect(buildQueue(twoBlocks, TIMED).map((cue) => [cue.kind, cue.seconds])).toEqual([
+      ['work', 30],
+      ['blockRest', 75],
+      ['work', 40],
+    ]);
+    expect(trainingSeconds(twoBlocks, TIMED).seconds).toBe(145);
+  });
+
+  it('does not emit a transition rest when it is zero or after the final block', () => {
+    const withoutTransition = {
+      ...twoBlocks,
+      blocks: twoBlocks.blocks.map((block) => ({ ...block, restAfterBlockSeconds: 0 })),
+    };
+    expect(buildQueue(withoutTransition, TIMED).map((cue) => cue.kind)).toEqual(['work', 'work']);
+  });
+
+  it('waits for the next non-empty block instead of ending on a rest', () => {
+    const withEmptyMiddle = {
+      ...twoBlocks,
+      blocks: [twoBlocks.blocks[0]!, { ...twoBlocks.blocks[1]!, steps: [] }],
+    };
+    expect(buildQueue(withEmptyMiddle, TIMED).map((cue) => cue.kind)).toEqual(['work']);
+  });
+});
+
 describe('bodyweight steps', () => {
   it('omit weight entirely rather than reporting zero', () => {
     const t: Training = {

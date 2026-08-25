@@ -27,6 +27,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { FilterPill, MiniStepper, MonoLabel, Stepper } from '@/components/ui';
+import { ValueEditSheet, type ValueEditContext } from '@/components/ValueEditSheet';
 import {
   BAR_WEIGHT_LIMITS,
   LEAD_SECONDS_LIMITS,
@@ -47,6 +48,27 @@ const ROUND_BLUE_GRADIENT = [
   color.roundBlue4,
   color.roundBlue5,
   color.roundBlue6,
+];
+
+// Still backed by the `warningOrange*` tokens (theme/tokens.ts) — only the
+// hue changed, from a burnt-orange/goldenrod to the brand yellow #ffd600 —
+// so the local name here tracks what it actually renders now.
+const WARNING_GOLD_GRADIENT = [
+  color.warningOrange1,
+  color.warningOrange2,
+  color.warningOrange3,
+  color.warningOrange4,
+  color.warningOrange5,
+  color.warningOrange6,
+];
+
+const REST_YELLOW_GRADIENT = [
+  color.restYellow1,
+  color.restYellow2,
+  color.restYellow3,
+  color.restYellow4,
+  color.restYellow5,
+  color.restYellow6,
 ];
 
 /** Row labels, in the order the user's screenshot shows them. */
@@ -84,13 +106,15 @@ const SOUND_NAMES: Record<SoundChoice, string> = {
 const PLATE_SIZES = [25, 20, 15, 10, 5, 2.5, 1.25, 1, 0.5];
 
 const SWATCHES: Record<'round' | 'warning' | 'rest', string[]> = {
-  // A soft-blue gradient, light to dark, replacing the earlier mixed
-  // near-black/green/maroon set entirely (`PLAN_ui_fixes.md` UI pass) — every
-  // stop is still dark enough that the light player ink on top of it passes
-  // `isLowContrast`.
+  // Each row its own hue so Round/Warning/Rest stay visually distinct at a
+  // glance: Round a slate blue, Warning the brand yellow #ffd600 (darkened
+  // enough to stay legible — see the ramp's comment in theme/tokens.ts),
+  // Rest a light, airy yellow. Every stop still clears `isLowContrast` — the
+  // two dark ramps against the light player ink on top, the light ramp
+  // against the dark ink `playerPalette.ts` picks for it instead.
   round: ROUND_BLUE_GRADIENT,
-  warning: ['#DCCB70', '#E5D68A', '#D8C868', '#E8DC9E', '#D0BE5C'],
-  rest: ['#F2F1EE', '#EDF1EE', '#F1EEF2', '#F4F0EA', '#E9EEF1'],
+  warning: WARNING_GOLD_GRADIENT,
+  rest: REST_YELLOW_GRADIENT,
 };
 
 export default function SettingsScreen() {
@@ -105,6 +129,12 @@ export default function SettingsScreen() {
     setAvailablePlates,
   } = useSettings();
   const [picking, setPicking] = useState<SoundEvent | null>(null);
+  // Which "How early" lead-time field is open in the bottom sheet — the
+  // same tap-to-open-a-sheet pattern every other numeric field in the app
+  // uses (see `app/training/[id]/builder.tsx`'s `valueEdit`). These two rows
+  // were the one place still expecting `MiniStepper` to work without an
+  // `onOpen`, which made them render as inert, disabled-looking text.
+  const [leadEdit, setLeadEdit] = useState<'beforeRoundEnd' | 'beforeRestEnd' | null>(null);
 
   return (
     <ScrollView
@@ -144,6 +174,7 @@ export default function SettingsScreen() {
                   max={LEAD_SECONDS_LIMITS.max}
                   format={(v) => (v === 0 ? 'Off' : `${v}s`)}
                   onChange={(v) => setLead(event, v)}
+                  onOpen={() => setLeadEdit(event)}
                   // The default `flex: 1` stretched this across the whole row
                   // — it only ever shows a couple of characters, so a fixed
                   // width reads much closer to a normal input box
@@ -252,6 +283,23 @@ export default function SettingsScreen() {
           },
         }))}
         onCancel={() => setPicking(null)}
+      />
+
+      <ValueEditSheet
+        context={
+          leadEdit
+            ? ({
+                label: `${SOUND_LABELS[leadEdit]} — how early`,
+                value: settings.leadSeconds[leadEdit],
+                step: 1,
+                min: LEAD_SECONDS_LIMITS.min,
+                max: LEAD_SECONDS_LIMITS.max,
+                format: (v: number) => (v === 0 ? 'Off' : `${v}s`),
+                onChange: (v: number) => setLead(leadEdit, v),
+              } satisfies ValueEditContext)
+            : null
+        }
+        onClose={() => setLeadEdit(null)}
       />
     </ScrollView>
   );

@@ -40,7 +40,7 @@ import { isTimed, type ExerciseType } from './exerciseType';
 import { distanceAt, repsAt, secondsAt, weightForRound } from './types';
 import type { Block, Exercise, Id, Step, Training } from './types';
 
-export type CueKind = 'prepare' | 'work' | 'rest' | 'roundRest';
+export type CueKind = 'prepare' | 'work' | 'rest' | 'roundRest' | 'blockRest';
 
 export interface Cue {
   kind: CueKind;
@@ -121,6 +121,7 @@ function stepIsTimed(step: Step, types: ExerciseTypes): boolean {
  *  - a step's `restAfter` is emitted only when another step follows it in the
  *    same round (see the discrepancy note above).
  *  - `roundRest` is emitted between rounds of a block, never after the last.
+ *  - `blockRest` is emitted after a block only when another non-empty block follows.
  *  - zero-second rests are dropped entirely rather than flashing on screen.
  *  - the queue never ends on a rest.
  */
@@ -138,7 +139,7 @@ export function buildQueue(training: Training, exerciseTypes: ExerciseTypes): Cu
     });
   }
 
-  for (const block of training.blocks) {
+  for (const [blockIndex, block] of training.blocks.entries()) {
     const rounds = Math.max(1, block.repeat);
     const stepsInRound = block.steps.length;
     if (stepsInRound === 0) continue;
@@ -195,6 +196,22 @@ export function buildQueue(training: Training, exerciseTypes: ExerciseTypes): Cu
         });
       }
     }
+
+    const hasFollowingBlock = training.blocks
+      .slice(blockIndex + 1)
+      .some((nextBlock) => nextBlock.steps.length > 0);
+    const blockRest = block.restAfterBlockSeconds ?? 0;
+    if (hasFollowingBlock && blockRest > 0) {
+      queue.push({
+        kind: 'blockRest',
+        seconds: blockRest,
+        blockId: block.id,
+        round: rounds,
+        roundsInBlock: rounds,
+        stepIndex: stepsInRound,
+        stepsInRound,
+      });
+    }
   }
 
   // Defensive: a training must never finish on a rest.
@@ -204,7 +221,7 @@ export function buildQueue(training: Training, exerciseTypes: ExerciseTypes): Cu
 }
 
 export function isRest(cue: Cue): boolean {
-  return cue.kind === 'rest' || cue.kind === 'roundRest';
+  return cue.kind === 'rest' || cue.kind === 'roundRest' || cue.kind === 'blockRest';
 }
 
 /** `prepare` uses the dark work palette — only true rests flip the screen. */

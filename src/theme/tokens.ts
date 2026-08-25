@@ -11,57 +11,100 @@
 
 export const color = {
   // Light screens
-  canvas: '#FBFAF8',
+  canvas: '#F6F6F7',
   surface: '#FFFFFF',
-  sunken: '#F1F0ED',
+  sunken: '#F0F0F1',
   restCanvas: '#F2F1EE',
 
-  ink: '#1B1B1D',
+  ink: '#14141A',
   inkStrong: '#141416',
-  inkMuted: '#6E6E6B',
-  inkFaint: '#8A8A85',
-  inkGhost: '#A3A29D',
-  inkGhostest: '#B5B3AD',
+  inkMuted: '#6B6B72',
+  inkFaint: '#9A9AA1',
+  inkGhost: '#C8C8CC',
+  inkGhostest: '#C8C8CC',
 
-  hairline: 'rgba(27,27,29,0.09)',
-  hairlineStrong: 'rgba(27,27,29,0.14)',
-  divider: 'rgba(27,27,29,0.07)',
-  track: '#DEDCD7',
-  accent: '#4A4A4A',
+  hairline: 'rgba(20,20,26,0.06)',
+  hairlineStrong: 'rgba(20,20,26,0.14)',
+  divider: 'rgba(20,20,26,0.08)',
+  track: '#E3E3E6',
+  accent: '#44444C',
+  accentSoft: '#ECECEE',
 
   // Incidental surfaces named in the screen specs
-  blockHeader: '#F6F5F2',
-  repeatedRound: '#ECEAE5',
-  dragHandle: '#C9C7C2',
+  blockHeader: '#EEEEF0',
+  repeatedRound: '#ECECEE',
+  dragHandle: '#C8C8CC',
 
   // Soft tint pairs for the three action colours the UI-fixes pass asked for:
   // red = delete/bin, orange = edit, blue = the custom-colors accent. Each is
   // a pale fill + a slightly stronger border, in the same low-saturation
   // register as the rest of the palette rather than a stock system red/etc.
-  softRed: '#F5E4E1',
-  softRedBorder: 'rgba(178,66,53,0.35)',
-  softRedIcon: '#B24235',
-  softOrange: '#F7EADA',
-  softOrangeBorder: 'rgba(178,116,32,0.35)',
-  softOrangeIcon: '#B27420',
-  softBlue: '#E2E9F5',
-  softBlueBorder: 'rgba(58,90,168,0.35)',
-  softBlueIcon: '#3A5AA8',
-  softGreen: '#E3EEE2',
-  softGreenBorder: 'rgba(63,127,58,0.35)',
-  softGreenIcon: '#3F7F3A',
+  softRed: '#FCE8E8',
+  softRedBorder: 'rgba(214,69,69,0.35)',
+  softRedIcon: '#D64545',
+  // Legacy aliases kept for existing components. The v2 system deliberately
+  // uses one neutral accent for every non-destructive state.
+  softOrange: '#ECECEE',
+  softOrangeBorder: 'rgba(68,68,76,0.28)',
+  softOrangeIcon: '#44444C',
+  softBlue: '#ECECEE',
+  softBlueBorder: 'rgba(68,68,76,0.28)',
+  softBlueIcon: '#44444C',
+  // Save is the one non-destructive action that still needs its own color:
+  // on the neutral fill every other icon button shares, "ready to save" and
+  // "blocked — fix the problems" were nearly indistinguishable (both a grey
+  // checkmark, differing only by a 0.45 opacity dip), which read as the
+  // button not working at all. A real, low-saturation green — same register
+  // as `softRed` — gives "ready" a color the dim state can visibly leave.
+  softGreen: '#E3F1E7',
+  softGreenBorder: 'rgba(45,133,79,0.32)',
+  softGreenIcon: '#2D854F',
 
-  // The Round color palette (Settings § Background colors) — a gradient of
-  // soft, muted blues rather than the mixed near-black/green/maroon set it
-  // replaced, light-to-dark so there is a real spread to pick from. Kept dark
-  // enough throughout that `isLowContrast` still passes the light player ink
-  // that sits on top of it.
+  // The three Settings § Background colors swatch rows, each its own hue so
+  // the three states read apart from each other at a glance rather than as
+  // near-identical shades of one color: Round stays the original slate blue,
+  // End round warning is a burnt orange, Rest is a light, airy yellow.
+  //
+  // Round and Warning both ramp dark-to-darker, same as before — every stop
+  // dark enough that `isLowContrast` passes the light player ink on top.
+  // Rest ramps light-to-less-light instead, matching "light yellow" as
+  // asked for: every stop still clears `isLowContrast`, just with the dark
+  // player ink on top rather than the light one — `playerPalette.ts`
+  // already picks whichever ink set actually contrasts, so this needed no
+  // changes there.
   roundBlue1: '#3A5A82',
   roundBlue2: '#2E4A6E',
   roundBlue3: '#243C5C',
   roundBlue4: '#1B2E48',
   roundBlue5: '#152336',
   roundBlue6: '#0F1826',
+
+  // 6 shades of #ffd600 (the brand yellow asked for), darkest-first to match
+  // the ramp direction every other row uses. #ffd600 itself, and anything near
+  // it, fails `isLowContrast` against BOTH ink sets — a saturated brand yellow
+  // at that brightness sits in the one luminance band that contrasts poorly
+  // with both near-black and near-white text. So this ramp goes considerably
+  // darker than the literal hue to actually clear the bar: every stop here is
+  // >=3.2:1 against the light player ink (`darkInk`'s muted, `darkMuted`),
+  // checked against the real `isLowContrast`/`weakestTextContrast` — the
+  // previous ramp's own comment claimed ">=4:1" but 3 of its 6 stops actually
+  // measured under 3:1; this one was verified against the live formula rather
+  // than asserted.
+  warningOrange1: '#1A1500',
+  warningOrange2: '#241E00',
+  warningOrange3: '#2E2700',
+  warningOrange4: '#382F00',
+  warningOrange5: '#423800',
+  warningOrange6: '#4A3E00',
+
+  // 6 shades of #88cdc7 (teal/mint), lightest-first — every stop keeps
+  // well over 3:1 contrast against the dark player ink (`ink`).
+  restYellow1: '#CDEAE7',
+  restYellow2: '#B7E1DD',
+  restYellow3: '#A2D8D3',
+  restYellow4: '#8CCFC9',
+  restYellow5: '#77C6BF',
+  restYellow6: '#61BDB5',
 
   // Dark (player)
   darkBg: '#141416',
@@ -127,7 +170,7 @@ export interface PlayerPalette {
 }
 
 export const space = {
-  gutter: 20,
+  gutter: 22,
   gutterPlayer: 26,
   xs: 8,
   s: 9,
@@ -139,11 +182,11 @@ export const space = {
 } as const;
 
 export const radius = {
-  card: 12,
+  card: 14,
   cardTight: 10,
   field: 7,
   fieldTight: 6,
-  button: 10,
+  button: 14,
   sheet: 18,
   pill: 20,
   segment: 2,
@@ -174,6 +217,16 @@ export const shadow = {
     shadowOpacity: 0.12,
     shadowRadius: 40,
     elevation: 24,
+  },
+  /** Soft resting-state lift for filled buttons (primary, add-circle, play).
+   *  Deliberately subtle — this app's whole surface language is low-contrast
+   *  and ink-toned, so this should read as "slightly raised," not glossy. */
+  button: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 3,
   },
 } as const;
 

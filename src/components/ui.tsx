@@ -12,21 +12,224 @@
  */
 
 import type { ReactNode } from 'react';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Image,
   Pressable,
   StyleSheet,
   Text,
   View,
+  type GestureResponderEvent,
   type StyleProp,
   type TextStyle,
   type ViewStyle,
 } from 'react-native';
+import * as Haptics from 'expo-haptics';
+import Animated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+  withTiming,
+} from 'react-native-reanimated';
 
 import type { MediaType } from '@/domain/types';
-import { color, mediaPlaceholder, radius, size, space } from '@/theme/tokens';
+import { color, mediaPlaceholder, radius, shadow, size, space } from '@/theme/tokens';
 import { type as t } from '@/theme/type';
+
+const AnimatedView = Animated.createAnimatedComponent(View);
+
+// ── Press animation ───────────────────────────────────────────────────────
+
+/**
+ * Shared press feedback for every button in the app: a quick scale-down +
+ * opacity dip on press-in (native-thread, via Reanimated, so it never waits
+ * on a JS re-render), a light spring back to rest on release, and — unless
+ * opted out — a light haptic tick that lands together with the visual squish
+ * rather than after it.
+ *
+ * Every button used to be a bare `Pressable` with either no pressed style at
+ * all, or a static `opacity: 0.5` snap. This is the one place that changes,
+ * so every button picks up the same feel at once.
+ */
+function usePressAnimation({
+  toScale = 0.96,
+  toOpacity = 0.85,
+  haptic = true,
+  disabled = false,
+}: {
+  toScale?: number;
+  toOpacity?: number;
+  haptic?: boolean;
+  disabled?: boolean;
+} = {}) {
+  const scale = useSharedValue(1);
+  const opacity = useSharedValue(1);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+    opacity: opacity.value,
+  }));
+
+  const pressIn = () => {
+    if (disabled) return;
+    scale.value = withTiming(toScale, { duration: 80 });
+    opacity.value = withTiming(toOpacity, { duration: 80 });
+    if (haptic) {
+      // Guarded with try/catch, not just `.catch()` on the promise: if the
+      // native module itself failed to link into this build, the call throws
+      // SYNCHRONOUSLY before it ever returns a promise to attach `.catch` to.
+      // An uncaught throw here happens inside the Pressable's onPressIn
+      // handler, ahead of onPress — on Hermes/release builds that can abort
+      // the rest of the gesture, which is indistinguishable from "the button
+      // does nothing" (PLAN_bugfix_round2.md item 1–3).
+      try {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)?.catch(() => {});
+      } catch {
+        // Haptics unavailable on this build/device — press animation and
+        // onPress must still proceed.
+      }
+    }
+  };
+
+  const pressOut = () => {
+    if (disabled) return;
+    scale.value = withSpring(1, { damping: 14, stiffness: 260 });
+    opacity.value = withTiming(1, { duration: 120 });
+  };
+
+  return { animatedStyle, pressIn, pressOut };
+}
+
+/**
+ * A `Pressable` wrapped in the shared press animation above. Drop-in for any
+ * button shape — pass the button's own style(s) via `style`, they're applied
+ * to the inner animated view alongside the scale/opacity.
+ */
+export function AnimatedPressable({
+  onPress,
+  onPressIn,
+  onPressOut,
+  disabled,
+  style,
+  children,
+  toScale,
+  toOpacity,
+  haptic,
+  ...rest
+}: {
+  onPress: (e: GestureResponderEvent) => void;
+  onPressIn?: () => void;
+  onPressOut?: () => void;
+  disabled?: boolean;
+  style?: StyleProp<ViewStyle>;
+  children: ReactNode;
+  toScale?: number;
+  toOpacity?: number;
+  haptic?: boolean;
+  [key: string]: unknown;
+}) {
+  const press = usePressAnimation({ toScale, toOpacity, haptic, disabled });
+
+  return (
+    <Pressable
+      onPress={onPress}
+      onPressIn={() => {
+        press.pressIn();
+        onPressIn?.();
+      }}
+      onPressOut={() => {
+        press.pressOut();
+        onPressOut?.();
+      }}
+      disabled={disabled}
+      {...rest}
+    >
+      <AnimatedView style={[style, press.animatedStyle]}>{children}</AnimatedView>
+    </Pressable>
+  );
+}
+
+/**
+ * The same press animation as `AnimatedPressable`, plus press-and-hold
+ * auto-repeat — built for stepper −/+ buttons, where holding the button
+ * should keep incrementing rather than requiring a tap per step.
+ *
+ * Timing: an initial ~400ms delay (so a normal tap never double-fires),
+ * then repeats on a ~130ms interval, clamped to whatever `onRepeat` itself
+ * enforces (min/max belong to the caller, same as a single tap). No haptic
+ * per repeat tick — a buzz every 130ms reads as noise, not feedback — only
+ * on the initial press, same as every other button.
+ */
+export function RepeatingPressable({
+  onRepeat,
+  disabled,
+  style,
+  children,
+  initialDelay = 400,
+  repeatInterval = 130,
+  ...rest
+}: {
+  onRepeat: () => void;
+  disabled?: boolean;
+  style?: StyleProp<ViewStyle>;
+  children: ReactNode;
+  initialDelay?: number;
+  repeatInterval?: number;
+  [key: string]: unknown;
+}) {
+  const press = usePressAnimation({ toScale: 0.9, toOpacity: 1, haptic: true, disabled });
+  const delayTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const repeatTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  // `onRepeat` is a new closure every render (it's `() => onChange(clamp(value
+  // ± step))` at the call site, closing over that render's `value`). The
+  // interval below is created once, in `start()`, and must keep reading the
+  // LATEST `onRepeat` on every tick — otherwise a held button keeps calling
+  // the closure from the render at press-in time, which keeps applying the
+  // same step to the same stale value instead of progressively advancing it.
+  const onRepeatRef = useRef(onRepeat);
+  onRepeatRef.current = onRepeat;
+
+  const clearTimers = () => {
+    if (delayTimer.current != null) {
+      clearTimeout(delayTimer.current);
+      delayTimer.current = null;
+    }
+    if (repeatTimer.current != null) {
+      clearInterval(repeatTimer.current);
+      repeatTimer.current = null;
+    }
+  };
+
+  // Belt-and-braces: a held button whose screen unmounts mid-press (e.g. the
+  // sheet is dismissed) must not leave an interval running against state
+  // that no longer exists.
+  useEffect(() => clearTimers, []);
+
+  const start = () => {
+    if (disabled) return;
+    press.pressIn();
+    onRepeatRef.current();
+    delayTimer.current = setTimeout(() => {
+      repeatTimer.current = setInterval(() => onRepeatRef.current(), repeatInterval);
+    }, initialDelay);
+  };
+
+  const stop = () => {
+    clearTimers();
+    press.pressOut();
+  };
+
+  return (
+    <Pressable
+      onPressIn={start}
+      onPressOut={stop}
+      disabled={disabled}
+      {...rest}
+    >
+      <AnimatedView style={[style, press.animatedStyle]}>{children}</AnimatedView>
+    </Pressable>
+  );
+}
 
 // ── Text ───────────────────────────────────────────────────────────────────
 
@@ -76,9 +279,9 @@ export function ScreenHeader({
       {/* A bare glyph at this font size is well under 44px on its own;
           hitSlop raised so the effective target clears it
           (`PLAN_ui_fixes.md` B6). */}
-      <Pressable onPress={onBack} hitSlop={16}>
+      <AnimatedPressable onPress={onBack} hitSlop={16} haptic={false} toOpacity={0.5}>
         <Text style={{ fontSize: 22, lineHeight: 26, color: color.ink }}>←</Text>
-      </Pressable>
+      </AnimatedPressable>
       {action ?? <View />}
     </View>
   );
@@ -88,9 +291,9 @@ export function ScreenHeader({
  *  "Save", and so on. */
 export function HeaderAction({ label, onPress }: { label: string; onPress: () => void }) {
   return (
-    <Pressable onPress={onPress} hitSlop={12}>
+    <AnimatedPressable onPress={onPress} hitSlop={12} haptic={false} toOpacity={0.5}>
       <MonoLabel tone={color.inkMuted}>{label}</MonoLabel>
-    </Pressable>
+    </AnimatedPressable>
   );
 }
 
@@ -127,15 +330,18 @@ export function FilterPill({
   onPress: () => void;
 }) {
   return (
-    <Pressable
+    <AnimatedPressable
       onPress={onPress}
+      haptic={false}
+      toScale={0.95}
+      toOpacity={0.8}
       style={[styles.pill, active ? styles.pillActive : styles.pillInactive]}
     >
       <MonoLabel tone={active ? color.darkInk : color.inkMuted}>{label}</MonoLabel>
       {count != null && (
         <MonoLabel tone={active ? color.darkMuted : color.inkGhostest}>{String(count)}</MonoLabel>
       )}
-    </Pressable>
+    </AnimatedPressable>
   );
 }
 
@@ -152,9 +358,9 @@ export function Card({
 }) {
   if (onPress) {
     return (
-      <Pressable onPress={onPress} style={[styles.card, style]}>
+      <AnimatedPressable onPress={onPress} haptic={false} toScale={0.98} toOpacity={0.9} style={[styles.card, style]}>
         {children}
-      </Pressable>
+      </AnimatedPressable>
     );
   }
   return <View style={[styles.card, style]}>{children}</View>;
@@ -170,12 +376,14 @@ export function SunkenRow({
   style?: StyleProp<ViewStyle>;
   onPress?: () => void;
 }) {
-  const Comp = onPress ? Pressable : View;
-  return (
-    <Comp onPress={onPress as () => void} style={[styles.sunkenRow, style]}>
-      {children}
-    </Comp>
-  );
+  if (onPress) {
+    return (
+      <AnimatedPressable onPress={onPress} haptic={false} toScale={0.98} toOpacity={0.85} style={[styles.sunkenRow, style]}>
+        {children}
+      </AnimatedPressable>
+    );
+  }
+  return <View style={[styles.sunkenRow, style]}>{children}</View>;
 }
 
 // ── Buttons ────────────────────────────────────────────────────────────────
@@ -192,13 +400,13 @@ export function PrimaryButton({
   disabled?: boolean;
 }) {
   return (
-    <Pressable
+    <AnimatedPressable
       onPress={onPress}
       disabled={disabled}
       style={[styles.primaryButton, disabled && { opacity: 0.35 }, style]}
     >
       <Text style={styles.primaryLabel}>{label}</Text>
-    </Pressable>
+    </AnimatedPressable>
   );
 }
 
@@ -212,18 +420,18 @@ export function SecondaryButton({
   style?: StyleProp<ViewStyle>;
 }) {
   return (
-    <Pressable onPress={onPress} style={[styles.secondaryButton, style]}>
+    <AnimatedPressable onPress={onPress} toOpacity={0.6} style={[styles.secondaryButton, style]}>
       <Text style={styles.secondaryLabel}>{label}</Text>
-    </Pressable>
+    </AnimatedPressable>
   );
 }
 
 /** The dark circular `+` on 1a and 1e. */
 export function AddCircle({ onPress }: { onPress: () => void }) {
   return (
-    <Pressable onPress={onPress} hitSlop={8} style={styles.addCircle}>
+    <AnimatedPressable onPress={onPress} hitSlop={8} style={styles.addCircle}>
       <Text style={{ color: color.darkInk, fontSize: 20, lineHeight: 22 }}>+</Text>
-    </Pressable>
+    </AnimatedPressable>
   );
 }
 
@@ -258,23 +466,22 @@ export function IconButton({
   disabled?: boolean;
 }) {
   return (
-    <Pressable
+    <AnimatedPressable
       onPress={onPress}
       disabled={disabled}
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
       hitSlop={4}
-      style={({ pressed }) => [
+      style={[
         styles.iconButton,
         tintBg != null && { backgroundColor: tintBg },
         tintBorder != null && { borderColor: tintBorder },
-        pressed && styles.iconButtonPressed,
         disabled && { opacity: 0.35 },
         style,
       ]}
     >
       {children}
-    </Pressable>
+    </AnimatedPressable>
   );
 }
 
@@ -445,20 +652,16 @@ export function PlayButton({
   disabled?: boolean;
 }) {
   return (
-    <Pressable
+    <AnimatedPressable
       onPress={onPress}
       disabled={disabled}
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
       hitSlop={8}
-      style={({ pressed }) => [
-        styles.playButton,
-        pressed && styles.iconButtonPressed,
-        disabled && { opacity: 0.3 },
-      ]}
+      style={[styles.playButton, disabled && { opacity: 0.3 }]}
     >
       <View style={styles.playTriangle} />
-    </Pressable>
+    </AnimatedPressable>
   );
 }
 
@@ -490,13 +693,13 @@ export function Stepper({
 
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: large ? 10 : 8 }}>
-      <Pressable
-        onPress={() => onChange(clamp(value - step))}
+      <RepeatingPressable
+        onRepeat={() => onChange(clamp(value - step))}
         disabled={value <= min}
         style={[styles.stepperBox, { width: box, height: box }, value <= min && { opacity: 0.3 }]}
       >
         <Text style={styles.stepperGlyph}>−</Text>
-      </Pressable>
+      </RepeatingPressable>
       <Text
         style={[
           large ? t.statFigure : t.monoValue,
@@ -506,25 +709,40 @@ export function Stepper({
       >
         {format(value)}
       </Text>
-      <Pressable
-        onPress={() => onChange(clamp(value + step))}
+      <RepeatingPressable
+        onRepeat={() => {
+          const next = clamp(value + step);
+          // TEMP DEBUG (bug report: "+ does nothing once value reaches 0")
+          // — every static read of this component's clamp/disabled logic
+          // came back correct, so this logs the actual runtime values at
+          // the moment "+" is pressed to catch what a code read can't:
+          // remove once the report reproduces with this in place.
+          if (__DEV__) {
+            console.log('[Stepper +]', { value, step, min, max, next });
+          }
+          onChange(next);
+        }}
         disabled={value >= max}
         style={[styles.stepperBox, { width: box, height: box }, value >= max && { opacity: 0.3 }]}
       >
         <Text style={styles.stepperGlyph}>+</Text>
-      </Pressable>
+      </RepeatingPressable>
     </View>
   );
 }
 
 /**
- * The Work / Rest / Reps field in a builder row: mono micro-label above a
- * `− value +` row.
+ * The Work / Rest / Reps field in a builder row: mono micro-label over a
+ * tappable value chip.
  *
- * The buttons are 22px so three of these fit across a phone without squeezing
- * out the value, and they carry `hitSlop` to bring the real touch target to
- * roughly 38px. Tapping the value itself does nothing — the arrows are the
- * whole interaction, which is what keeps the row readable at a glance.
+ * Used to carry its own `− value +` row — three of these fit across a phone
+ * width, per the original comment here, which is exactly why the buttons
+ * were 22px: too small a target next to the rest of the app's button work.
+ * The row is now a single tap target showing the current value; tapping it
+ * opens a `ValueEditSheet` with the same large `Stepper` every other value
+ * in the app is edited with, `onOpen` supplies everything that sheet needs
+ * (label, value, step/min/max/format) — the call site doesn't change, only
+ * how the field renders.
  */
 export function MiniStepper({
   label,
@@ -537,6 +755,7 @@ export function MiniStepper({
   disabled = false,
   disabledValue = '—',
   style,
+  onOpen,
 }: {
   label: string;
   value: number;
@@ -551,43 +770,34 @@ export function MiniStepper({
    *  passes a fixed width so the box doesn't stretch to fill the row the way
    *  a bare `flex: 1` does (`PLAN_ui_fixes.md` UI pass). */
   style?: StyleProp<ViewStyle>;
+  /** Opens the shared `ValueEditSheet` pre-filled with this field's own
+   *  label/value/step/min/max/format/onChange. Omit to render read-only
+   *  (used nowhere today, kept so a future read-only mini-field doesn't need
+   *  a second component). */
+  onOpen?: () => void;
 }) {
-  const clamp = (v: number) => Math.min(max, Math.max(min, v));
-  const atMin = value <= min;
-  const atMax = value >= max;
-
   return (
     <View style={[styles.miniField, style]}>
       <MonoLabel tone={color.inkGhost} style={{ fontSize: 9 }}>
         {label}
       </MonoLabel>
 
-      {disabled ? (
-        <Text style={[t.monoValue, styles.miniDisabled]}>{disabledValue}</Text>
+      {disabled || !onOpen ? (
+        <Text style={[t.monoValue, styles.miniDisabled]}>
+          {disabled ? disabledValue : format(value)}
+        </Text>
       ) : (
-        <View style={styles.miniRow}>
-          <Pressable
-            hitSlop={8}
-            disabled={atMin}
-            onPress={() => onChange(clamp(value - step))}
-            style={[styles.miniButton, atMin && { opacity: 0.25 }]}
-          >
-            <Text style={styles.miniGlyph}>−</Text>
-          </Pressable>
-
+        <AnimatedPressable
+          onPress={onOpen}
+          haptic={false}
+          toScale={0.95}
+          toOpacity={0.7}
+          style={styles.miniValueTap}
+        >
           <Text style={[t.monoValue, styles.miniValue]} numberOfLines={1}>
             {format(value)}
           </Text>
-
-          <Pressable
-            hitSlop={8}
-            disabled={atMax}
-            onPress={() => onChange(clamp(value + step))}
-            style={[styles.miniButton, atMax && { opacity: 0.25 }]}
-          >
-            <Text style={styles.miniGlyph}>+</Text>
-          </Pressable>
-        </View>
+        </AnimatedPressable>
       )}
     </View>
   );
@@ -757,13 +967,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     height: 34,
   },
-  pillActive: { backgroundColor: color.inkStrong },
+  pillActive: { backgroundColor: color.accent },
   pillInactive: { borderWidth: 1, borderColor: color.hairlineStrong },
   card: {
     backgroundColor: color.surface,
     borderRadius: radius.card,
-    borderWidth: 1,
-    borderColor: color.hairline,
+    borderWidth: 0,
   },
   sunkenRow: {
     backgroundColor: color.sunken,
@@ -777,11 +986,12 @@ const styles = StyleSheet.create({
   primaryButton: {
     height: size.primaryButton,
     borderRadius: radius.button,
-    backgroundColor: color.inkStrong,
+    backgroundColor: color.accent,
     alignItems: 'center',
     justifyContent: 'center',
+    ...shadow.button,
   },
-  primaryLabel: { fontFamily: 'Archivo_600SemiBold', fontSize: 14, color: color.darkInk },
+  primaryLabel: { fontFamily: 'Inter_700Bold', fontSize: 14, color: color.darkInk },
   secondaryButton: {
     height: size.primaryButton,
     borderRadius: radius.button,
@@ -790,14 +1000,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  secondaryLabel: { fontFamily: 'Archivo_500Medium', fontSize: 14, color: color.inkMuted },
+  secondaryLabel: { fontFamily: 'Inter_500Medium', fontSize: 14, color: color.inkMuted },
   addCircle: {
     width: size.addCircle,
     height: size.addCircle,
     borderRadius: size.addCircle / 2,
-    backgroundColor: color.inkStrong,
+    backgroundColor: color.accent,
     alignItems: 'center',
     justifyContent: 'center',
+    ...shadow.button,
   },
   iconButton: {
     width: 44,
@@ -809,7 +1020,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  iconButtonPressed: { opacity: 0.5 },
   binGlyph: { width: 15, height: 15, alignItems: 'center' },
   binHandle: { width: 5, height: 1.6, borderRadius: 1, marginBottom: 1.5 },
   binLid: { width: 15, height: 1.6, borderRadius: 1 },
@@ -847,7 +1057,7 @@ const styles = StyleSheet.create({
     borderTopColor: color.softOrangeIcon,
     transform: [{ rotate: '45deg' }],
   },
-  saveGlyph: { fontFamily: 'Archivo_600SemiBold', fontSize: 18, color: color.softGreenIcon },
+  saveGlyph: { fontFamily: 'Inter_700Bold', fontSize: 18, color: color.softGreenIcon },
   moreGlyph: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -863,9 +1073,10 @@ const styles = StyleSheet.create({
     width: 38,
     height: 38,
     borderRadius: 19,
-    backgroundColor: color.inkStrong,
+    backgroundColor: color.accent,
     alignItems: 'center',
     justifyContent: 'center',
+    ...shadow.button,
   },
   playTriangle: {
     width: 0,
@@ -886,7 +1097,7 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
   },
   repsTagLabel: {
-    fontFamily: 'Archivo_600SemiBold',
+    fontFamily: 'Inter_700Bold',
     fontSize: 9,
     letterSpacing: 0.4,
     color: color.inkMuted,
@@ -899,7 +1110,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  stepperGlyph: { fontFamily: 'Archivo_500Medium', fontSize: 17, color: color.ink },
+  stepperGlyph: { fontFamily: 'Inter_500Medium', fontSize: 17, color: color.ink },
   miniField: {
     flex: 1,
     backgroundColor: color.sunken,
@@ -908,36 +1119,25 @@ const styles = StyleSheet.create({
     paddingTop: 8,
     paddingBottom: 7,
   },
-  miniRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+  // The whole value area is now one tap target that opens `ValueEditSheet` —
+  // no more −/+ boxes crammed into a 22px-tall row.
+  miniValueTap: {
     marginTop: 5,
-  },
-  miniButton: {
-    width: 27,
-    height: 27,
     borderRadius: 6,
     borderWidth: 1,
     borderColor: color.hairlineStrong,
     backgroundColor: color.surface,
+    paddingVertical: 6,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  miniGlyph: {
-    fontFamily: 'Archivo_500Medium',
-    fontSize: 15,
-    lineHeight: 18,
-    color: color.ink,
-  },
-  miniValue: { color: color.ink, fontSize: 12.5, flex: 1, textAlign: 'center' },
+  miniValue: { color: color.ink, fontSize: 12.5, textAlign: 'center' },
   miniDisabled: { color: color.inkGhostest, fontSize: 12.5, marginTop: 9, textAlign: 'center' },
   statCard: {
     flex: 1,
     backgroundColor: color.surface,
     borderRadius: radius.cardTight,
-    borderWidth: 1,
-    borderColor: color.hairline,
+    borderWidth: 0,
     paddingHorizontal: 14,
     paddingVertical: 14,
   },

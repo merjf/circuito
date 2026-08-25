@@ -161,6 +161,12 @@ export interface Block {
   /** Rounds. >= 1. */
   repeat: number;
   restBetweenRoundsSeconds: number;
+  /**
+   * The transition after this block and before the next non-empty block.
+   * Optional only while older in-memory drafts are being upgraded; persisted
+   * blocks always receive a value from the v7 migration.
+   */
+  restAfterBlockSeconds?: number;
   steps: Step[];
 }
 

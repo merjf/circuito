@@ -30,7 +30,7 @@ import { formatPlateBreakdown, platesFor } from '@/domain/plateCalc';
 import { useSettings } from '@/hooks/useSettings';
 import { color, radius, shadow, space } from '@/theme/tokens';
 import { type as t } from '@/theme/type';
-import { MonoLabel, PrimaryButton, SecondaryButton, Stepper, TypeTag } from './ui';
+import { AnimatedPressable, MonoLabel, PrimaryButton, SecondaryButton, Stepper, TypeTag } from './ui';
 
 export interface StepEditContext {
   step: Step;
@@ -195,7 +195,7 @@ export function StepEditSheet({
               rather than asking which to keep — it is the number the user
               started from, and the one the summary line led with. */}
           {fields.reps && context.rounds > 1 && (
-            <Pressable
+            <AnimatedPressable
               onPress={() =>
                 onChange(
                   varies
@@ -204,12 +204,14 @@ export function StepEditSheet({
                 )
               }
               hitSlop={8}
+              haptic={false}
+              toOpacity={0.5}
               style={styles.varyRow}
             >
               <Text style={styles.resetLink}>
                 {varies ? 'Same in every round' : 'Vary by round'}
               </Text>
-            </Pressable>
+            </AnimatedPressable>
           )}
 
           {fields.weight && (
@@ -342,7 +344,7 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   resetLink: {
-    fontFamily: 'Archivo_500Medium',
+    fontFamily: 'Inter_500Medium',
     fontSize: 10.5,
     color: color.inkGhost,
     marginTop: 5,

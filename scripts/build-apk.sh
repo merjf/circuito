@@ -83,18 +83,6 @@ echo "▸ Variant      $VARIANT"
 
 # ── Native project ─────────────────────────────────────────────────────────
 
-# Clean up on EVERY exit path, not just success. A failed Gradle run that leaves
-# android/ behind is the worst outcome: the next `npm start` silently switches to
-# the bare workflow and app.json quietly stops applying, long after the build
-# error has scrolled away.
-cleanup_native() {
-  if [ "$KEEP_NATIVE" = "0" ] && [ -d "$ROOT/android" ]; then
-    rm -rf "$ROOT/android"
-    echo "▸ Removed android/ (pass --keep-native to keep it for rebuilds)"
-  fi
-}
-trap cleanup_native EXIT
-
 if [ "$KEEP_NATIVE" = "1" ] && [ -d android ]; then
   echo "▸ Reusing existing android/ (--keep-native)"
 else
@@ -104,7 +92,13 @@ fi
 
 # Gradle reads the SDK location from here when ANDROID_HOME is not exported
 # into its environment, which is the common case when running from an IDE.
-echo "sdk.dir=$SDK_DIR" > android/local.properties
+# local.properties uses Java-properties syntax, where Windows backslashes are
+# escape characters. Convert them to forward slashes before writing the value.
+SDK_DIR_GRADLE="$SDK_DIR"
+if command -v cygpath >/dev/null 2>&1; then
+  SDK_DIR_GRADLE="$(cygpath -m "$SDK_DIR")"
+fi
+printf 'sdk.dir=%s\n' "$SDK_DIR_GRADLE" > android/local.properties
 
 # ── Build ──────────────────────────────────────────────────────────────────
 

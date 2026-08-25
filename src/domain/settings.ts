@@ -92,12 +92,17 @@ export const DEFAULT_SETTINGS: Settings = {
   colors: {
     useCustom: false,
     round: '#141416',
-    // Muted amber. Measured, not eyeballed: at this lightness the derived
-    // secondary text lands at 3.6:1, comfortably clear of the 3:1 floor, where
-    // the first candidate (#B8A33C) sat at 3.01 — passing, but with no margin
-    // for the day someone nudges a token. See `theme/playerPalette.ts`.
-    warning: '#DCCB70',
-    rest: '#F2F1EE',
+    // A stop of the `warningOrange` / `restYellow` swatch ramps
+    // (`theme/tokens.ts`) — 6 shades of #ffd600 and #88cdc7 respectively —
+    // so the out-of-the-box color matches the swatch family a user sees in
+    // Settings rather than an unrelated hex. Both clear the 3:1 floor with
+    // margin: warning (ramp stop 5 of 6) lands at 3.55:1 against the light
+    // player ink, rest at 14.4:1 against the dark player ink. Not the ramp's
+    // first/darkest stop — at that darkness #ffd600's hue reads closer to
+    // near-black than to yellow, so the default sits further along the ramp,
+    // where the color is still recognizably yellow. See `theme/playerPalette.ts`.
+    warning: '#423800',
+    rest: '#CDEAE7',
   },
   // A standard Olympic bar and a common fractional set. Not a guess at what
   // any particular user owns — just a starting point that is one tap away

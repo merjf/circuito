@@ -139,7 +139,7 @@ export default function HistoryScreen() {
       {stats && sessions && sessions.length > 0 && (
         <>
           <View style={styles.topCards}>
-            <View style={[styles.topCard, { backgroundColor: color.inkStrong }]}>
+            <View style={[styles.topCard, { backgroundColor: color.accent }]}>
               <MonoLabel tone={color.darkMuted}>Streak</MonoLabel>
               <View style={styles.figureRow}>
                 <Text style={[t.statFigure, { color: color.darkInk, fontSize: 30 }]}>
@@ -218,7 +218,7 @@ export default function HistoryScreen() {
                     // Floor at 4px so an empty week is still a visible tick.
                     height: Math.max(4, (bar.minutes / stats.peak) * CHART_HEIGHT),
                     borderRadius: radius.fieldTight,
-                    backgroundColor: bar.isCurrent ? color.inkStrong : color.track,
+                    backgroundColor: bar.isCurrent ? color.accent : color.track,
                   }}
                 />
               </View>
@@ -547,7 +547,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  cellFilled: { backgroundColor: color.inkStrong },
+  cellFilled: { backgroundColor: color.accent },
   cellToday: { borderWidth: 1.5, borderColor: color.inkMuted },
   cellLabel: { color: color.inkFaint, fontSize: 11 },
   tagRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 8 },
@@ -559,7 +559,7 @@ const styles = StyleSheet.create({
     backgroundColor: color.track,
     overflow: 'hidden',
   },
-  tagFill: { height: 10, borderRadius: 5, backgroundColor: color.inkStrong },
+  tagFill: { height: 10, borderRadius: 5, backgroundColor: color.accent },
   tagCount: { color: color.inkMuted, width: 24, textAlign: 'right' },
   chartCaptions: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 10 },
   sessionRow: {

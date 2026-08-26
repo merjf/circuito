@@ -157,7 +157,7 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: color.divider,
   },
-  item: { alignItems: 'center', gap: 5, width: 80 },
+  item: { alignItems: 'center', gap: 5, width: 80, paddingTop: 6, paddingBottom: 8 },
   icon: { width: 18, height: 18, alignItems: 'center', justifyContent: 'center' },
   stack: { justifyContent: 'space-between', paddingVertical: 3 },
   bars: { flexDirection: 'row', alignItems: 'flex-end', gap: 2.5 },

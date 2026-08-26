@@ -20,8 +20,19 @@
  * text treatments to put on top.
  */
 
-import type { Settings } from '../domain/settings';
+import { DEFAULT_SETTINGS, type Settings } from '../domain/settings';
 import { color, playerTheme, type PlayerPalette } from './tokens';
+
+/**
+ * The light-orange gradient stops for the end-round warning background.
+ *
+ * Only applied when `colors.warning` is still the shipped default — a user
+ * who has picked their own warning colour in Settings gets a flat fill of
+ * that colour instead, same as `round`/`rest` already do for custom colours.
+ * A gradient invented for an arbitrary user hue would fight whatever they
+ * actually chose.
+ */
+const WARNING_GRADIENT = [color.warningGradientLight, color.warningGradientDark] as const;
 
 /** Which face of the player is showing. */
 export type PlayerState = 'work' | 'warning' | 'rest';
@@ -148,7 +159,7 @@ function mix(from: string, to: string, amount: number): string {
  * opaque colours, so surfaces, hairlines and chips stay in the same colour
  * family as whatever the user chose instead of a grey that clashes with it.
  */
-function paletteFor(background: string): PlayerPalette {
+function paletteFor(background: string, bgGradient?: readonly [string, string]): PlayerPalette {
   const set = inkSetFor(background);
   const ink = set === 'light' ? color.darkInk : color.ink;
   const ink2 = set === 'light' ? color.darkInk2 : color.accent;
@@ -162,6 +173,7 @@ function paletteFor(background: string): PlayerPalette {
   if (set === 'light') {
     return {
       bg: background,
+      bgGradient,
       fill: 'rgba(245,244,241,0.10)',
       hairline: color.darkHairlineStrong,
       ink,
@@ -175,6 +187,7 @@ function paletteFor(background: string): PlayerPalette {
 
   return {
     bg: background,
+    bgGradient,
     fill: 'rgba(27,27,29,0.05)',
     hairline: color.hairlineStrong,
     ink,
@@ -197,16 +210,18 @@ function paletteFor(background: string): PlayerPalette {
  */
 export function playerPalette(state: PlayerState, settings: Settings): PlayerPalette {
   const { colors } = settings;
+  const isDefaultWarning = colors.warning === DEFAULT_SETTINGS.colors.warning;
+  const warningGradient = isDefaultWarning ? WARNING_GRADIENT : undefined;
 
   if (!colors.useCustom) {
     if (state === 'work') return playerTheme.work;
     if (state === 'rest') return playerTheme.rest;
-    return paletteFor(colors.warning);
+    return paletteFor(colors.warning, warningGradient);
   }
 
   if (state === 'work') return paletteFor(colors.round);
   if (state === 'rest') return paletteFor(colors.rest);
-  return paletteFor(colors.warning);
+  return paletteFor(colors.warning, warningGradient);
 }
 
 /**

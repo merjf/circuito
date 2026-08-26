@@ -72,40 +72,42 @@ export const color = {
   // player ink on top rather than the light one — `playerPalette.ts`
   // already picks whichever ink set actually contrasts, so this needed no
   // changes there.
-  roundBlue1: '#3A5A82',
-  roundBlue2: '#2E4A6E',
-  roundBlue3: '#243C5C',
-  roundBlue4: '#1B2E48',
-  roundBlue5: '#152336',
-  roundBlue6: '#0F1826',
+  roundBlue1: '#2b82ec',
+  roundBlue2: '#1f6fd9',
+  roundBlue3: '#1a5ebf',
+  roundBlue4: '#154ea6',
+  roundBlue5: '#0f3e8c',
+  roundBlue6: '#0a2e73',
 
-  // 6 shades of #ffd600 (the brand yellow asked for), darkest-first to match
-  // the ramp direction every other row uses. #ffd600 itself, and anything near
-  // it, fails `isLowContrast` against BOTH ink sets — a saturated brand yellow
-  // at that brightness sits in the one luminance band that contrasts poorly
-  // with both near-black and near-white text. So this ramp goes considerably
-  // darker than the literal hue to actually clear the bar: every stop here is
-  // >=3.2:1 against the light player ink (`darkInk`'s muted, `darkMuted`),
-  // checked against the real `isLowContrast`/`weakestTextContrast` — the
-  // previous ramp's own comment claimed ">=4:1" but 3 of its 6 stops actually
-  // measured under 3:1; this one was verified against the live formula rather
-  // than asserted.
-  warningOrange1: '#1A1500',
-  warningOrange2: '#241E00',
-  warningOrange3: '#2E2700',
-  warningOrange4: '#382F00',
-  warningOrange5: '#423800',
-  warningOrange6: '#4A3E00',
+  // Superseded 2026-08-25: the old ramp below was 6 shades of #ffd600 pushed
+  // dark enough to clear contrast, which reads as near-black olive-brown, not
+  // orange — see `warningGradientLight`/`warningGradientDark` below for what
+  // the end-round warning actually renders now. Left in place (unreferenced)
+  // rather than deleted, since it documents why the darkening was necessary
+  // the first time a "light" version of this ramp is attempted again:
+  // #ffd600 and anything near it fails `isLowContrast` against BOTH ink
+  // sets, because a saturated brand yellow at that brightness sits in the
+  // one luminance band that contrasts poorly with both near-black and
+  // near-white text.
+  warningOrange1: '#d6ac03',
+  warningOrange2: '#c09600',
+  warningOrange3: '#a88000',
+  warningOrange4: '#906a00',
+  warningOrange5: '#785400',
+  warningOrange6: '#604000',
+
+  warningGradientLight: '#FFE8CC',
+  warningGradientDark: '#FFAD5C',
 
   // 6 shades of #88cdc7 (teal/mint), lightest-first — every stop keeps
   // well over 3:1 contrast against the dark player ink (`ink`).
-  restYellow1: '#CDEAE7',
-  restYellow2: '#B7E1DD',
-  restYellow3: '#A2D8D3',
-  restYellow4: '#8CCFC9',
-  restYellow5: '#77C6BF',
-  restYellow6: '#61BDB5',
-
+  restYellow1: '#dbf0d3',
+  restYellow2: '#c8e9b7',
+  restYellow3: '#b5e09b',
+  restYellow4: '#a2d77f',
+  restYellow5: '#8fdf63',
+  restYellow6: '#7cd747',
+  
   // Dark (player)
   darkBg: '#141416',
   darkSurface: '#202023',
@@ -159,6 +161,15 @@ export const playerTheme = {
  */
 export interface PlayerPalette {
   bg: string;
+  /**
+   * Two-stop gradient for the screen background, when the state has one
+   * (currently only `warning`). `bg` stays a single solid colour alongside
+   * this — it is still used as a plain fill colour elsewhere (the centre
+   * button's icon glyphs, `playTriangle`'s border colour), which a gradient
+   * cannot stand in for. When absent, the screen renders `bg` as a flat fill,
+   * same as before this field existed.
+   */
+  bgGradient?: readonly [string, string];
   fill: string;
   hairline: string;
   ink: string;

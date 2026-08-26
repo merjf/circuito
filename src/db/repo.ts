@@ -28,6 +28,17 @@ let db: SQLite.SQLiteDatabase | null = null;
 export async function openDatabase(): Promise<SQLite.SQLiteDatabase> {
   if (db) return db;
   db = await SQLite.openDatabaseAsync(DATABASE_NAME);
+  // `foreign_keys` is a PER-CONNECTION pragma — migration v1 turns it on
+  // inside the SQL it runs against whatever connection first created the
+  // database, but that has no effect on this connection or any other. Without
+  // this, every `ON DELETE CASCADE` in schema.ts (blocks→steps,
+  // sessions→set_logs) silently does nothing: a parent row deletes, its
+  // children are orphaned instead of removed, and the next INSERT that
+  // reuses one of those children's ids fails with a UNIQUE constraint error.
+  // That is exactly what broke `saveTraining` (steps.id) before this fix; see
+  // `deleteSession` below, which worked around the same gotcha by deleting
+  // explicitly rather than trusting cascade.
+  await db.execAsync('PRAGMA foreign_keys = ON');
   await migrate(db);
   await cleanupOrphanedMedia(db);
   return db;
@@ -256,7 +267,16 @@ export async function saveTraining(t: Training, conn?: SQLite.SQLiteDatabase): P
     );
 
     // Blocks and steps are rewritten wholesale: the builder edits a whole
-    // training at a time, and CASCADE keeps orphans impossible.
+    // training at a time. Steps are deleted explicitly, in dependency order,
+    // rather than trusting `ON DELETE CASCADE` — `PRAGMA foreign_keys` is a
+    // per-connection setting (see `openDatabase`), so cascade cannot be
+    // assumed here even now that this connection turns it on: a future
+    // connection that forgets to should not resurrect this exact bug
+    // (orphaned `steps` rows colliding with reused ids on the next save).
+    await c.runAsync(
+      'DELETE FROM steps WHERE blockId IN (SELECT id FROM blocks WHERE trainingId = ?)',
+      t.id,
+    );
     await c.runAsync('DELETE FROM blocks WHERE trainingId = ?', t.id);
 
     for (const [bi, b] of t.blocks.entries()) {

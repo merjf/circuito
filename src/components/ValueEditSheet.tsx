@@ -94,5 +94,5 @@ const styles = StyleSheet.create({
     marginTop: space.xl,
     alignItems: 'center',
   },
-  done: { marginTop: space.xl, height: 46 },
+  done: { marginTop: space.xl, height: 46, marginBottom: space.xl },
 });

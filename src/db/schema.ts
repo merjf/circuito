@@ -135,7 +135,7 @@ const steps =
   };
 
 /** Bump for every migration and append to MIGRATIONS below. */
-export const SCHEMA_VERSION = 7;
+export const SCHEMA_VERSION = 8;
 
 export const MIGRATIONS: Migration[] = [
   // v1 — initial schema
@@ -451,4 +451,22 @@ export const MIGRATIONS: Migration[] = [
   // deliberately the migration default: existing workouts must keep the same
   // timeline until their owner explicitly adds a transition rest.
   addColumns('blocks', { restAfterBlockSeconds: 'INTEGER NOT NULL DEFAULT 0' }),
+
+  // v8 — one-time repair for the `saveTraining` cascade bug: `foreign_keys`
+  // was never turned on for the app's runtime connection (only for whatever
+  // connection happened to run migration v1 once, on a database's very first
+  // launch), so `DELETE FROM blocks` never cascaded into `steps` the way the
+  // schema's FK declaration assumes. Every edit-then-save of an existing
+  // training left that training's old `steps` rows behind, orphaned under a
+  // `blockId` no longer in `blocks` — invisible to every reader, since reads
+  // join from `blocks` outward, but still occupying their `id` primary key.
+  // The next save that reused one of those ids then failed with `UNIQUE
+  // constraint failed: steps.id` — the "Couldn't save" dialog. Deleting rows
+  // whose `blockId` matches no existing block is safe unconditionally: such a
+  // row can only be reached this way, and after this migration a fresh save
+  // no longer depends on cascade at all (see `saveTraining`), so no new
+  // orphans can accumulate the same way again.
+  sql(`
+  DELETE FROM steps WHERE blockId NOT IN (SELECT id FROM blocks);
+  `),
 ];

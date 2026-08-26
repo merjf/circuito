@@ -36,7 +36,7 @@ import { ExercisePicker } from '@/components/ExercisePicker';
 import { StepEditSheet, type StepEditContext } from '@/components/StepEditSheet';
 import { ValueEditSheet, type ValueEditContext } from '@/components/ValueEditSheet';
 import type { ValueEditTarget } from '@/domain/valueEditTarget';
-import { AnimatedPressable, Card, MiniStepper, MonoLabel, SaveButton, TypeTag } from '@/components/ui';
+import { AnimatedPressable, CancelButton, Card, MiniStepper, MonoLabel, SaveButton, TypeTag } from '@/components/ui';
 import { getTraining, listExercises, saveTraining } from '@/db/repo';
 import {
   blockSeconds,
@@ -367,9 +367,7 @@ export default function BuilderScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: color.canvas }}>
       <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
-        <AnimatedPressable onPress={() => router.back()} hitSlop={12} haptic={false} toOpacity={0.5}>
-          <MonoLabel tone={color.inkMuted}>Cancel</MonoLabel>
-        </AnimatedPressable>
+        <CancelButton onPress={() => router.back()} accessibilityLabel="Cancel" />
         <Text style={[t.exerciseRow, { color: color.ink, fontSize: 14 }]}>
           {id === 'new' ? 'New training' : 'Edit training'}
         </Text>

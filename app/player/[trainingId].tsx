@@ -30,10 +30,17 @@
  * the elapsed fraction of the *current* cue, capped by a 1px hairline. It is
  * animated toward each tick's value over exactly one tick, linearly — so it
  * renders at 60fps while staying pinned to the clock rather than free-running.
+ *
+ * The root background itself is `palette.bg`, a flat fill, EXCEPT for the
+ * warning state's shipped default, which renders as a light-orange
+ * `LinearGradient` instead (`palette.bgGradient`, set in
+ * `theme/playerPalette.ts`) — a user's custom warning colour still renders
+ * flat, same as work/rest always have.
  */
 
 import { router, useLocalSearchParams } from 'expo-router';
 import { useKeepAwake } from 'expo-keep-awake';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useCallback, useEffect, useRef, useState, useMemo } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import Animated, {
@@ -332,8 +339,17 @@ function Player({
       false,
     );
 
+  // Warning's shipped default renders as a light-orange gradient; every
+  // other state, and a user's custom warning colour, stays a flat fill. A
+  // plain `View` can't animate between the two backgroundColor/colors prop
+  // shapes, so the root element itself is chosen here rather than branching
+  // deeper in the tree.
+  const rootBackgroundProps = palette.bgGradient
+    ? { colors: palette.bgGradient, start: { x: 0, y: 0 } as const, end: { x: 1, y: 1 } as const }
+    : { colors: [palette.bg, palette.bg] as const };
+
   return (
-    <View style={[styles.root, { backgroundColor: palette.bg }]}>
+    <LinearGradient {...rootBackgroundProps} style={styles.root}>
       {/* Progress fill, pinned to the bottom, with its hairline cap. */}
       <Animated.View
         style={[styles.fill, { backgroundColor: palette.fill }, fillStyle]}
@@ -520,7 +536,7 @@ function Player({
           if (runner.isPaused) runner.toggle();
         }}
       />
-    </View>
+    </LinearGradient>
   );
 }
 

@@ -38,6 +38,60 @@ import { type as t } from '@/theme/type';
 
 const AnimatedView = Animated.createAnimatedComponent(View);
 
+/**
+ * Splits a caller's `style` between `AnimatedPressable`/`RepeatingPressable`'s
+ * two nodes: the outer `Pressable` (which needs the FULL style — it's the
+ * actual flex item in whatever row/column contains the button, so sizing
+ * props like `flex`/`height`/`width` have to land there or Yoga has nothing
+ * to size against) and the inner `AnimatedView` (which needs the LAYOUT
+ * props — `flexDirection`/`alignItems`/`gap`/etc — so multi-child buttons
+ * still arrange their children correctly, but NOT the paint props).
+ *
+ * The paint props (`borderWidth`/`borderColor`/`backgroundColor`/shadow/
+ * `borderRadius`) are dropped from the inner copy on purpose: both nodes
+ * render at the identical rect once Yoga resolves them, so painting the same
+ * border or fill on both stacks two coincident layers — for a solid color
+ * that's merely wasteful, but for any semi-transparent `rgba(...)` border or
+ * fill (soft-red/orange/green tints, hairline borders — most of this app's
+ * icon buttons and outlined controls) the two layers visibly composite to a
+ * darker/more saturated edge than the design intends. Stripping them from
+ * the inner node means only the outer Pressable ever paints the visible
+ * chrome, while the inner node stays a transparent layout+animation shell.
+ */
+const PAINT_KEYS = [
+  'backgroundColor',
+  'borderColor',
+  'borderWidth',
+  'borderTopWidth',
+  'borderBottomWidth',
+  'borderLeftWidth',
+  'borderRightWidth',
+  'borderTopColor',
+  'borderBottomColor',
+  'borderLeftColor',
+  'borderRightColor',
+  'borderRadius',
+  'borderTopLeftRadius',
+  'borderTopRightRadius',
+  'borderBottomLeftRadius',
+  'borderBottomRightRadius',
+  'borderStyle',
+  'shadowColor',
+  'shadowOffset',
+  'shadowOpacity',
+  'shadowRadius',
+  'elevation',
+] as const;
+
+function layoutOnlyStyle(style: StyleProp<ViewStyle> | undefined): ViewStyle {
+  const flat = (StyleSheet.flatten(style) ?? {}) as ViewStyle;
+  const layoutOnly: ViewStyle = { ...flat };
+  for (const key of PAINT_KEYS) {
+    delete (layoutOnly as Record<string, unknown>)[key];
+  }
+  return layoutOnly;
+}
+
 // ── Press animation ───────────────────────────────────────────────────────
 
 /**
@@ -102,8 +156,11 @@ function usePressAnimation({
 
 /**
  * A `Pressable` wrapped in the shared press animation above. Drop-in for any
- * button shape — pass the button's own style(s) via `style`, they're applied
- * to the inner animated view alongside the scale/opacity.
+ * button shape — pass the button's own style(s) via `style`. The full style
+ * lands on the outer `Pressable` (so sizing like `flex: 1` resolves against
+ * the node that's actually a flex item in the caller's layout); a layout-only
+ * copy (no border/background/radius/shadow — see `layoutOnlyStyle`) lands on
+ * the inner animated view, which also carries the press scale/opacity.
  */
 export function AnimatedPressable({
   onPress,
@@ -130,6 +187,22 @@ export function AnimatedPressable({
 }) {
   const press = usePressAnimation({ toScale, toOpacity, haptic, disabled });
 
+  // The full `style` goes on the outer Pressable — it's the actual flex item
+  // in whatever row/column contains this button, so sizing props (`flex`,
+  // `height`, `width`) have to land there or Yoga has nothing to size
+  // against and the box collapses toward its content (this is exactly what
+  // made ConfirmDialog's `flex: 1` action buttons render as collapsed
+  // slivers — the old code applied `style` to the inner view only).
+  //
+  // The inner AnimatedView gets a LAYOUT-ONLY copy (see `layoutOnlyStyle`):
+  // it still needs `flexDirection`/`alignItems`/`gap` so multi-child buttons
+  // (ExercisePicker's thumbnail + text + badge rows) arrange correctly, but
+  // not the paint props — border/background/radius/shadow are dropped so
+  // they're never rendered twice at the same coincident rect. Two solid-color
+  // layers stacked would just be wasteful; two semi-transparent rgba layers
+  // (this app's hairline borders and soft-red/orange/green tints) would
+  // visibly composite to a darker edge than intended, which is the failure
+  // mode this split avoids.
   return (
     <Pressable
       onPress={onPress}
@@ -142,9 +215,10 @@ export function AnimatedPressable({
         onPressOut?.();
       }}
       disabled={disabled}
+      style={style}
       {...rest}
     >
-      <AnimatedView style={[style, press.animatedStyle]}>{children}</AnimatedView>
+      <AnimatedView style={[layoutOnlyStyle(style), press.animatedStyle]}>{children}</AnimatedView>
     </Pressable>
   );
 }
@@ -219,14 +293,22 @@ export function RepeatingPressable({
     press.pressOut();
   };
 
+  // Same split as `AnimatedPressable` above: the full `style` lands on the
+  // outer Pressable (the real flex item, so sizing/flex from a parent row
+  // resolves correctly), while the inner AnimatedView gets a layout-only
+  // copy — same `flexDirection`/`alignItems`/`gap` for multi-child content,
+  // but no border/background/radius/shadow, so paint props never render
+  // twice at the same coincident rect (which would double up any
+  // semi-transparent border/fill).
   return (
     <Pressable
       onPressIn={start}
       onPressOut={stop}
       disabled={disabled}
+      style={style}
       {...rest}
     >
-      <AnimatedView style={[style, press.animatedStyle]}>{children}</AnimatedView>
+      <AnimatedView style={[layoutOnlyStyle(style), press.animatedStyle]}>{children}</AnimatedView>
     </Pressable>
   );
 }
@@ -236,7 +318,7 @@ export function RepeatingPressable({
 export function MonoLabel({
   children,
   style,
-  tone = color.inkGhost,
+  tone = color.ink,
 }: {
   children: ReactNode;
   style?: StyleProp<TextStyle>;
@@ -584,6 +666,43 @@ export function SaveButton({
       style={dim ? { opacity: 0.45 } : undefined}
     >
       <Text style={styles.saveGlyph}>✓</Text>
+    </IconButton>
+  );
+}
+
+/**
+ * The Cancel action, as an icon rather than a text label — `✕` is already on
+ * the handoff's approved glyph list (× ✓ ← › + − ◀◀ ▶▶), so this needs no new
+ * construction the way the bin and pencil did. Soft red: on the neutral
+ * `sunken` fill it used to share with every other resting control, it read as
+ * inert rather than as the screen's one confirming action
+ * (`PLAN_ui_fixes.md` UI pass — "cancel button does not work").
+ */
+export function CancelButton({
+  onPress,
+  accessibilityLabel = 'Cancel',
+  /** Fades the whole button without blocking the press — the builder still
+   *  needs a tap through to land when the draft has problems, since that is
+   *  what surfaces the "Not ready to save" dialog. Use `disabled` only when
+   *  the press really should do nothing. */
+  dim = false,
+  disabled = false,
+}: {
+  onPress: () => void;
+  accessibilityLabel?: string;
+  dim?: boolean;
+  disabled?: boolean;
+}) {
+  return (
+    <IconButton
+      onPress={onPress}
+      accessibilityLabel={accessibilityLabel}
+      disabled={disabled}
+      tintBg={color.softRed}
+      tintBorder={color.softRedBorder}
+      style={dim ? { opacity: 0.45 } : undefined}
+    >
+      <Text style={styles.cancelGlyph}>✕</Text>
     </IconButton>
   );
 }
@@ -1058,6 +1177,7 @@ const styles = StyleSheet.create({
     transform: [{ rotate: '45deg' }],
   },
   saveGlyph: { fontFamily: 'Inter_700Bold', fontSize: 18, color: color.softGreenIcon },
+  cancelGlyph: { fontFamily: 'Inter_700Bold', fontSize: 18, color: color.softRedIcon },
   moreGlyph: {
     flexDirection: 'row',
     alignItems: 'center',

@@ -92,15 +92,19 @@ export const DEFAULT_SETTINGS: Settings = {
   colors: {
     useCustom: false,
     round: '#141416',
-    // A stop of the `warningOrange` / `restYellow` swatch ramps
-    // (`theme/tokens.ts`) — 6 shades of #ffd600 and #88cdc7 respectively —
-    // so the out-of-the-box color matches the swatch family a user sees in
-    // Settings rather than an unrelated hex. Both clear the 3:1 floor with
-    // margin: warning (ramp stop 5 of 6) lands at 3.55:1 against the light
-    // player ink, rest at 14.4:1 against the dark player ink. Not the ramp's
-    // first/darkest stop — at that darkness #ffd600's hue reads closer to
-    // near-black than to yellow, so the default sits further along the ramp,
-    // where the color is still recognizably yellow. See `theme/playerPalette.ts`.
+    // `rest` is a stop of the `restYellow` swatch ramp (`theme/tokens.ts`) —
+    // 6 shades of #88cdc7 — so the out-of-the-box color matches the swatch
+    // family a user sees in Settings rather than an unrelated hex; it clears
+    // the 3:1 floor with margin (14.4:1 against the dark player ink).
+    //
+    // `warning` is also the FALLBACK flat color for the picker/swatch (and
+    // the sentinel `theme/playerPalette.ts` compares against): as long as it
+    // equals this exact value, the player renders the shipped light-orange
+    // gradient (`warningGradientLight`/`warningGradientDark`) instead of a
+    // flat fill; any other value (a user's custom pick) renders as flat. Kept
+    // as a dark olive-brown rather than recolored to match the new gradient,
+    // since it still has to work standing alone as a flat swatch color if a
+    // user picks it explicitly from the custom-color UI once that ships.
     warning: '#423800',
     rest: '#CDEAE7',
   },

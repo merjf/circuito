@@ -490,7 +490,7 @@ export default function ExerciseDetailScreen() {
           onChangeText={(note) => setExercise({ ...exercise, note })}
           onBlur={() => persist(exercise)}
           placeholder="Form cues, reminders…"
-          placeholderTextColor={color.inkGhost}
+          placeholderTextColor={color.inkMuted}
           multiline
           style={styles.note}
         />

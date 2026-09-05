@@ -393,7 +393,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.cardTight,
     borderWidth: 1,
     borderColor: color.hairline,
-    padding: 12,
+    padding: 6,
     marginBottom: 10,
   },
   empty: {

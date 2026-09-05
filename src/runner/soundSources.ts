@@ -15,9 +15,9 @@
 import type { SoundId } from '../domain/settings';
 
 export const SOUND_SOURCES: Record<SoundId, number> = {
-  gong: require('../../assets/audio/gong.wav'),
-  warning: require('../../assets/audio/warning.wav'),
-  alert: require('../../assets/audio/alert.wav'),
-  restEnd: require('../../assets/audio/restEnd.wav'),
-  beep: require('../../assets/audio/beep.wav'),
+  gong: require('../../assets/audio/gong.mp3'),
+  warning: require('../../assets/audio/warning.mp3'),
+  alert: require('../../assets/audio/gong.mp3'),
+  restEnd: require('../../assets/audio/gong.mp3'),
+  beep: require('../../assets/audio/gong.mp3'),
 };

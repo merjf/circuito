@@ -509,7 +509,7 @@ const styles = StyleSheet.create({
   },
   searchClearGlyph: { color: color.inkGhost, fontSize: 16 },
   pills: { gap: 8, paddingVertical: space.xs },
-  card: { padding: 18, marginBottom: space.sm },
+  card: { padding: 6, marginBottom: space.sm },
   cardTop: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   cardTopDivider: {
     width: StyleSheet.hairlineWidth,

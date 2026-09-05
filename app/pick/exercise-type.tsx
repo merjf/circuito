@@ -17,10 +17,10 @@
  */
 
 import { router, useLocalSearchParams } from 'expo-router';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { MonoLabel, OutlineChip, ScreenHeader } from '@/components/ui';
+import { AnimatedPressable, MonoLabel, OutlineChip, ScreenHeader } from '@/components/ui';
 import { asExerciseType, EXERCISE_TYPES, TYPE_COPY } from '@/domain/exerciseType';
 import { deliverPick } from '@/nav/pickerHandoff';
 import { color, radius, space } from '@/theme/tokens';
@@ -59,9 +59,10 @@ export default function ExerciseTypePickerScreen() {
           const copy = TYPE_COPY[type];
           const active = selected === type;
           return (
-            <Pressable
+            <AnimatedPressable
               key={type}
               style={[styles.row, active && styles.rowActive]}
+              haptic="select"
               accessibilityRole="radio"
               accessibilityState={{ selected: active }}
               accessibilityLabel={`${copy.label}. ${copy.chips.join(', ')}`}
@@ -86,7 +87,7 @@ export default function ExerciseTypePickerScreen() {
                 </View>
               </View>
               {active && <Text style={styles.tick}>✓</Text>}
-            </Pressable>
+            </AnimatedPressable>
           );
         })}
       </ScrollView>

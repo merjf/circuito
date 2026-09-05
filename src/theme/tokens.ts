@@ -22,6 +22,14 @@ export const color = {
   inkFaint: '#9A9AA1',
   inkGhost: '#C8C8CC',
   inkGhostest: '#C8C8CC',
+  /** For text and marks that are de-emphasised but still have to be READ.
+   *  Distinct from `inkGhost`/`inkGhostest`, which are decorative (placeholder
+   *  text, future calendar cells, grid rules) and stay at #C8C8CC. Added
+   *  2026-08-26 (PLAN_ui_polish.md §2b) rather than editing either ghost
+   *  token's value, since `inkGhost` also feeds `playerTheme.rest.faint` and
+   *  changing it would silently change the player palette. 3.18:1 on canvas —
+   *  clears WCAG's 3:1 floor for meaningful non-text marks. */
+  inkDisabled: '#8A8A90',
 
   hairline: 'rgba(20,20,26,0.06)',
   hairlineStrong: 'rgba(20,20,26,0.14)',
@@ -193,21 +201,24 @@ export const space = {
 } as const;
 
 export const radius = {
-  card: 14,
-  cardTight: 10,
-  field: 7,
-  fieldTight: 6,
-  button: 14,
-  sheet: 18,
+  card: 18,
+  cardTight: 14,
+  field: 10,
+  fieldTight: 8,
+  button: 16,
+  sheet: 24,
   pill: 20,
-  segment: 2,
+  segment: 3,
 } as const;
 
 export const size = {
   primaryButton: 54,
   playerControl: 56,
   stickyBar: 54,
-  tabBar: 64,
+  // 64 -> 72: the icons sat almost against the bar's top hairline. The extra
+  // 8px is breathing room ABOVE the icon (see the `item` paddingTop in
+  // `app/(tabs)/_layout.tsx`), not a taller label area.
+  tabBar: 72,
   addCircle: 38,
   // Bumped from 26/34 (`PLAN_ui_fixes.md` UI pass) — the −/+ boxes read as too
   // small a tap target next to the rest of the button work below.
@@ -221,29 +232,98 @@ export const size = {
   structureStrip: 5,
 } as const;
 
+/** Cross-platform depth scale. See PLAN_ui_polish.md §3 for the full
+ *  reasoning behind this shape — short version below.
+ *
+ *  Geometry (offset + radius) is FROZEN per level and never animated: iOS
+ *  rasterises a layer shadow's alpha channel offscreen on any frame where
+ *  shadowRadius/shadowOffset/bounds change (RN exposes no `shadowPath` to
+ *  skip that), so animating shadow *geometry* at 60fps is the expensive
+ *  thing. `shadowOpacity` is not geometry — with offset+radius frozen it's a
+ *  free GPU composite. Android `elevation` has no opacity equivalent and
+ *  quantises to a handful of steps on many OEM skins, so it moves in
+ *  discrete steps, never tweened.
+ *
+ *  Only `shadowOpacity` (iOS) and stepped `elevation` (Android) animate.
+ *  `transform` (scale + translateY) carries the depth read the eye actually
+ *  notices.
+ *
+ *  Pure black at low opacity, no tinted shadows — this app's whole surface
+ *  language is neutral and a coloured shadow would be the first thing in it
+ *  that isn't. */
+export const elevation = {
+  /** Flat. Sunken rows, chips, icon buttons, anything inset. */
+  e0: { shadowColor: '#000', shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0, shadowRadius: 0, elevation: 0 },
+  /** Resting cards, stat cards, list rows. You notice the edge lift off the
+   *  canvas, not the shadow. */
+  e1: { shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 6, elevation: 1 },
+  /** Filled buttons at rest (primary, add-circle, play). ~ today's shadow.button. */
+  e2: { shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.08, shadowRadius: 8, elevation: 3 },
+  /** Raised: pressed card, tab bar, toast, sticky bar, the row being dragged. */
+  e3: { shadowColor: '#000', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.14, shadowRadius: 16, elevation: 8 },
+  /** Overlays: sheets, dialogs, exercise picker. */
+  e4: { shadowColor: '#000', shadowOffset: { width: 0, height: -12 }, shadowOpacity: 0.14, shadowRadius: 40, elevation: 24 },
+} as const;
+
+/** The scalar forms the animated press states read, so the static and
+ *  animated paths can never drift apart. */
+export const elevationOpacity = { e0: 0, e1: 0.05, e2: 0.08, e3: 0.14, e4: 0.14 } as const;
+export const elevationLevel = { e0: 0, e1: 1, e2: 3, e3: 8, e4: 24 } as const;
+
+/**
+ * @deprecated Use `elevation` instead (e2 ~= old `button`, e4 ~= old `sheet`).
+ * Kept as an alias for one release so nothing mid-migration breaks; delete
+ * once every call site has moved to `elevation`.
+ */
 export const shadow = {
-  sheet: {
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -12 },
-    shadowOpacity: 0.12,
-    shadowRadius: 40,
-    elevation: 24,
-  },
-  /** Soft resting-state lift for filled buttons (primary, add-circle, play).
-   *  Deliberately subtle — this app's whole surface language is low-contrast
-   *  and ink-toned, so this should read as "slightly raised," not glossy. */
-  button: {
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 3,
-  },
+  sheet: elevation.e4,
+  button: elevation.e2,
+} as const;
+
+/**
+ * Motion tokens. Previously inline magic numbers inside `usePressAnimation`
+ * (80/120ms, damping 14, stiffness 260) — lifted out so the whole app shares
+ * one feel and one place to tune it. Entrances and layout changes deliberately
+ * use short timed transitions: they acknowledge a change without the vertical
+ * overshoot that made lists and sheets feel constantly in motion.
+ */
+export const motion = {
+  pressIn: { duration: 90 },
+  pressOut: { duration: 140 },
+  enter: { duration: 160 },
+  /** ms per item, entrance stagger. */
+  enterStagger: 20,
+  /** items after which stagger stops accumulating. */
+  enterStaggerMax: 4,
+  layout: { duration: 140 },
+  sheetIn: { duration: 160 },
+  sheetOut: { duration: 120 },
+  /** Hold before a drag activates. See PLAN_ui_polish.md §7.1 for why 350. */
+  dragHold: 350,
+  /** Work <-> rest palette cross-fade. Moved here from `transition`, which
+   *  keeps `themeFlip` exported as an alias since `playerPalette.ts` and the
+   *  runner read it from there. */
+  themeFlip: 29,
+} as const;
+
+/** Press geometry: how far things move, not how long. */
+export const press = {
+  scaleButton: 0.96,
+  /** Large surfaces need far less scale to read. */
+  scaleCard: 0.985,
+  scaleStepper: 0.90,
+  /** The row you're holding during a drag. */
+  scaleDrag: 1.03,
+  liftY: -2,
+  sinkY: 1,
+  /** Raised from 0.85 — with real depth carrying the feedback, the opacity
+   *  dip can back off. */
+  opacity: 0.92,
 } as const;
 
 export const transition = {
-  /** Work <-> rest palette cross-fade. */
-  themeFlip: 200,
+  /** Work <-> rest palette cross-fade. Alias of `motion.themeFlip`. */
+  themeFlip: motion.themeFlip,
   /** The draining background fill follows the timer, so it is never eased. */
   fillEasing: 'linear',
 } as const;

@@ -10,6 +10,7 @@
     "newArchEnabled": true,
     "backgroundColor": "#FBFAF8",
     "splash": {
+      "image": "./assets/splash-icon.png",
       "backgroundColor": "#141416",
       "resizeMode": "contain"
     },

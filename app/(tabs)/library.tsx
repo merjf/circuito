@@ -8,17 +8,18 @@
 
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Animated, { FadeIn, LinearTransition, ReduceMotion } from 'react-native-reanimated';
 
 import { ActionSheet } from '@/components/ActionSheet';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
-import { AddCircle, FilterPill, MonoLabel, MoreButton, Thumbnail, TypeTag } from '@/components/ui';
+import { AddCircle, AnimatedPressable, FilterPill, MonoLabel, MoreButton, Thumbnail, TypeTag } from '@/components/ui';
 import { TYPE_COPY } from '@/domain/exerciseType';
 import { deleteExercise, listExercises, listTrainings, usageCounts } from '@/db/repo';
 import { joinNames } from '@/domain/format';
 import type { Exercise, Training } from '@/domain/types';
-import { color, radius, size, space } from '@/theme/tokens';
+import { color, motion, radius, size, space } from '@/theme/tokens';
 import { type as t } from '@/theme/type';
 
 /**
@@ -136,14 +137,15 @@ export default function LibraryScreen() {
           style={[styles.search, query.length > 0 && { paddingRight: 34 }]}
         />
         {query.length > 0 && (
-          <Pressable
+          <AnimatedPressable
             onPress={() => setQuery('')}
             hitSlop={10}
+            haptic="tap"
             accessibilityLabel="Clear search"
             style={styles.searchClear}
           >
             <Text style={styles.searchClearGlyph}>×</Text>
-          </Pressable>
+          </AnimatedPressable>
         )}
       </View>
 
@@ -178,27 +180,29 @@ export default function LibraryScreen() {
               ? `${exercises.length} ${exercises.length === 1 ? 'exercise' : 'exercises'}`
               : `${filtered.length} of ${exercises.length}`}
           </MonoLabel>
-          <Pressable
+          <AnimatedPressable
             onPress={() => setSorting(true)}
             hitSlop={12}
+            haptic="select"
             accessibilityRole="button"
             accessibilityLabel={`Sort order: ${sortLabel}. Change`}
           >
             <MonoLabel tone={color.inkMuted}>{`Sort · ${sortLabel}`}</MonoLabel>
-          </Pressable>
+          </AnimatedPressable>
         </View>
       )}
 
       <View style={{ paddingHorizontal: space.gutter }}>
         {exercises.length === 0 ? (
-          <Pressable
+          <AnimatedPressable
             style={styles.empty}
+            haptic="tap"
             onPress={() => router.push({ pathname: '/exercise/[id]', params: { id: 'new' } })}
           >
             <Text style={[t.exerciseRow, { color: color.inkMuted }]}>
               Add your first exercise
             </Text>
-          </Pressable>
+          </AnimatedPressable>
         ) : filtered.length === 0 ? (
           // The library has exercises, the search/filter just matched none —
           // was previously indistinguishable from a blank screen
@@ -208,11 +212,12 @@ export default function LibraryScreen() {
             Nothing matches that.
           </Text>
         ) : (
-          filtered.map((exercise) => (
+          filtered.map((exercise, index) => (
             <ExerciseRow
               key={exercise.id}
               exercise={exercise}
               usedIn={usage.get(exercise.id) ?? 0}
+              index={index}
               onMenu={() => setMenuFor(exercise)}
             />
           ))
@@ -290,10 +295,12 @@ export default function LibraryScreen() {
 function ExerciseRow({
   exercise,
   usedIn,
+  index,
   onMenu,
 }: {
   exercise: Exercise;
   usedIn: number;
+  index: number;
   onMenu: () => void;
 }) {
   // Timing lives on steps, not on the exercise, so the meta line describes the
@@ -304,8 +311,17 @@ function ExerciseRow({
   ].filter(Boolean);
 
   return (
-    <Pressable
+    <Animated.View
+      entering={FadeIn
+        .duration(motion.enter.duration)
+        .delay(Math.min(index, motion.enterStaggerMax) * motion.enterStagger)
+        .reduceMotion(ReduceMotion.System)}
+      layout={LinearTransition.duration(motion.layout.duration)
+        .reduceMotion(ReduceMotion.System)}
+    >
+    <AnimatedPressable
       style={styles.row}
+      haptic="tap"
       onPress={() => router.push({ pathname: '/exercise/[id]', params: { id: exercise.id } })}
     >
       <Thumbnail uri={exercise.mediaUrl} type={exercise.mediaType} size={size.thumbnail} />
@@ -329,7 +345,8 @@ function ExerciseRow({
         accessibilityLabel={`Actions for ${exercise.name || 'this exercise'}`}
         onPress={onMenu}
       />
-    </Pressable>
+    </AnimatedPressable>
+    </Animated.View>
   );
 }
 

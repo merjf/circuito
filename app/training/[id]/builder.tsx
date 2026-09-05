@@ -29,6 +29,7 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Animated, { LinearTransition, ReduceMotion } from 'react-native-reanimated';
 
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { DraggableList } from '@/components/DraggableList';
@@ -38,6 +39,7 @@ import { ValueEditSheet, type ValueEditContext } from '@/components/ValueEditShe
 import type { ValueEditTarget } from '@/domain/valueEditTarget';
 import { AnimatedPressable, CancelButton, Card, MiniStepper, MonoLabel, SaveButton, TypeTag } from '@/components/ui';
 import { getTraining, listExercises, saveTraining } from '@/db/repo';
+import { haptic } from '@/feedback/haptics';
 import {
   blockSeconds,
   formatDuration,
@@ -62,7 +64,7 @@ import {
 } from '@/domain/types';
 import type { Block, Exercise, Step, Training } from '@/domain/types';
 import { validateTraining } from '@/domain/validation';
-import { color, radius, space } from '@/theme/tokens';
+import { color, motion, radius, space } from '@/theme/tokens';
 import { type as t } from '@/theme/type';
 
 const BLOCK_LABELS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
@@ -209,6 +211,7 @@ export default function BuilderScreen() {
     }
     try {
       await saveTraining({ ...draft, updatedAt: new Date().toISOString() });
+      haptic('success');
       router.back();
     } catch (err) {
       // Previously unhandled: a thrown promise here left the Save button
@@ -222,6 +225,7 @@ export default function BuilderScreen() {
       // temporary, just enough to see the real cause on-device. Once that's
       // fixed, this can go back to a generic message.
       console.error('saveTraining failed', err);
+      haptic('error');
       setSaveError(err instanceof Error ? err.message : String(err));
     }
   };
@@ -544,7 +548,11 @@ function BlockCard({
   onOpenValue: (target: ValueEditTarget) => void;
 }) {
   return (
-    <View style={styles.blockCard}>
+    <Animated.View
+      layout={LinearTransition.duration(motion.layout.duration)
+        .reduceMotion(ReduceMotion.System)}
+      style={styles.blockCard}
+    >
       <View style={styles.blockHeader}>
         {/* 16px box, hitSlop raised so the effective target clears 44px
             (`PLAN_ui_fixes.md` B6) — sizes stay as drawn, only the tappable
@@ -640,7 +648,7 @@ function BlockCard({
           )}
         </>
       )}
-    </View>
+    </Animated.View>
   );
 }
 
@@ -827,12 +835,13 @@ const styles = StyleSheet.create({
     borderTopColor: color.divider,
     backgroundColor: color.surface,
   },
+  // Shadow/elevation while dragging now lives on DraggableList's own
+  // gesture-driven wrapper node (src/components/DraggableList.tsx, §7.2) —
+  // this row is nested directly inside it, so painting a second shadow here
+  // would double-composite at the identical rect. Only the background tint
+  // stays local, as a distinct complementary cue.
   stepRowDragging: {
     backgroundColor: color.blockHeader,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.14,
-    shadowRadius: 16,
   },
   stepTop: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
   stepNameRow: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' },

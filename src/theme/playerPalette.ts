@@ -227,16 +227,20 @@ export function playerPalette(state: PlayerState, settings: Settings): PlayerPal
 /**
  * Which state the player should be showing.
  *
- * The warning state applies only to a timed work cue inside its final `lead`
- * seconds. It does not apply to a tap-gated cue, for the same reason the
- * warning *sound* does not: there is no known end to count down to.
+ * Prepare always uses the warning face, making the first Get ready screen use
+ * the selected end-round colour from its first frame. The warning state then
+ * applies to a timed work cue only inside its final `lead` seconds. It does
+ * not apply to a tap-gated cue, for the same reason the warning *sound* does
+ * not: there is no known end to count down to.
  */
 export function playerStateFor(args: {
   isRest: boolean;
+  isPrepare: boolean;
   secondsRemaining: number | null;
   leadSeconds: number;
 }): PlayerState {
   if (args.isRest) return 'rest';
+  if (args.isPrepare) return 'warning';
   if (args.secondsRemaining === null) return 'work';
   return args.secondsRemaining <= args.leadSeconds && args.leadSeconds > 0 ? 'warning' : 'work';
 }

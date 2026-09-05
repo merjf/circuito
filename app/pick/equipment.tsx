@@ -21,10 +21,10 @@
  */
 
 import { router, useLocalSearchParams } from 'expo-router';
-import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Image, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { MonoLabel, ScreenHeader } from '@/components/ui';
+import { AnimatedPressable, MonoLabel, ScreenHeader } from '@/components/ui';
 import { EQUIPMENT_ART } from '@/domain/equipmentArt';
 import { asEquipment, EQUIPMENT, EQUIPMENT_LABELS } from '@/domain/exerciseType';
 import { deliverPick } from '@/nav/pickerHandoff';
@@ -61,9 +61,10 @@ export default function EquipmentPickerScreen() {
         {EQUIPMENT.map((item) => {
           const active = selected === item;
           return (
-            <Pressable
+            <AnimatedPressable
               key={item}
               style={[styles.row, active && styles.rowActive]}
+              haptic="select"
               accessibilityRole="radio"
               accessibilityState={{ selected: active }}
               accessibilityLabel={EQUIPMENT_LABELS[item]}
@@ -77,7 +78,7 @@ export default function EquipmentPickerScreen() {
                 {EQUIPMENT_LABELS[item]}
               </Text>
               {active && <Text style={styles.tick}>✓</Text>}
-            </Pressable>
+            </AnimatedPressable>
           );
         })}
       </ScrollView>

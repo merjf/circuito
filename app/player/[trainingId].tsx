@@ -52,6 +52,7 @@ import Animated, {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { AnimatedPressable } from '@/components/ui';
 import { getTraining, insertSession, listExercises } from '@/db/repo';
 import { formatClock, formatDuration,
   formatQueueDuration, totalRounds } from '@/domain/duration';
@@ -81,6 +82,7 @@ const REST_ADJUST_SECONDS = 15;
 
 export default function PlayerScreen() {
   const { trainingId } = useLocalSearchParams<{ trainingId: string }>();
+  const { settings, loading: settingsLoading } = useSettings();
   const [loaded, setLoaded] = useState<{
     training: Training;
     exercises: Map<string, Exercise>;
@@ -111,10 +113,10 @@ export default function PlayerScreen() {
     };
   }, [trainingId]);
 
-  if (!loaded) {
+  if (!loaded || settingsLoading) {
     return (
-      <View style={[styles.loading, { backgroundColor: color.darkBg }]}>
-        <ActivityIndicator color={color.darkMuted} />
+      <View style={[styles.loading, { backgroundColor: color.canvas }]}>
+        <ActivityIndicator color={color.inkStrong} />
       </View>
     );
   }
@@ -125,6 +127,7 @@ export default function PlayerScreen() {
       key={loaded.training.id}
       training={loaded.training}
       exercises={loaded.exercises}
+      settings={settings}
     />
   );
 }
@@ -132,16 +135,17 @@ export default function PlayerScreen() {
 function Player({
   training,
   exercises,
+  settings,
 }: {
   training: Training;
   exercises: Map<string, Exercise>;
+  settings: import('@/domain/settings').Settings;
 }) {
   useKeepAwake();
   const insets = useSafeAreaInsets();
   const playSound = useCueSounds();
   const saving = useRef(false);
   const [leaving, setLeaving] = useState(false);
-  const { settings } = useSettings();
   // Declared before `save`, which closes over it to rebuild the queue.
   const types = useMemo(() => exerciseTypesOf(exercises.values()), [exercises]);
 
@@ -204,17 +208,30 @@ function Player({
   // second off the runner's own tick, and a new function identity every
   // render would tear down and re-add the native `BackHandler` listener at
   // the same 1Hz.
+  const runnerRef = useRef(runner);
+  runnerRef.current = runner;
+  // The native press event can arrive after a rest has ended and the controls
+  // have unmounted (especially after several fast taps). Read the current
+  // runner through the ref so that a delayed −/+ event cannot change the cue
+  // the player has already moved on to.
+  const adjustRest = useCallback((deltaSeconds: number) => {
+    const currentRunner = runnerRef.current;
+    if (currentRunner.phase !== 'rest' || !currentRunner.canAdjust) return;
+    currentRunner.adjust(deltaSeconds);
+  }, []);
   const onHardwareBack = useCallback(() => {
-    if (!runner.isPaused) runner.toggle();
+    const currentRunner = runnerRef.current;
+    if (!currentRunner.isPaused) currentRunner.toggle();
     setLeaving(true);
-  }, [runner]);
-  useConfirmedBack(!runner.finished, onHardwareBack);
+  }, []);
+  useConfirmedBack(!runner.finished && !leaving, onHardwareBack);
 
   // The warning state is new: the work screen changes colour for the final
   // lead-in seconds. It does not apply to a gated cue, which has no known end
   // to count down to — same reason its warning sound does not fire.
   const playerState = playerStateFor({
     isRest: !runner.dark,
+    isPrepare: runner.phase === 'prepare',
     secondsRemaining: runner.remaining,
     leadSeconds: settings.leadSeconds.beforeRoundEnd,
   });
@@ -361,17 +378,18 @@ function Player({
       <View style={[styles.content, { paddingTop: insets.top }]}>
         {/* Header */}
         <View style={styles.headerRow}>
-          <Pressable
+          <AnimatedPressable
             onPress={() => {
               // Pause first: the prompt should not eat into the round.
               if (!runner.isPaused) runner.toggle();
               setLeaving(true);
             }}
             hitSlop={14}
+            haptic="tap"
             style={{ width: 28 }}
           >
             <Text style={{ fontSize: 20, lineHeight: 24, color: palette.muted }}>×</Text>
-          </Pressable>
+          </AnimatedPressable>
           <Text style={[t.monoLabel, { color: palette.muted }]}>{contextLabel}</Text>
           <Text style={[t.monoValueSmall, { color: palette.muted }]}>
             {formatQueueDuration(runner.totalRemaining)} left
@@ -447,7 +465,7 @@ function Player({
           {runner.phase === 'rest' && runner.canAdjust && (
             <>
               <Pressable
-                onPress={() => runner.adjust(-REST_ADJUST_SECONDS)}
+                onPress={() => adjustRest(-REST_ADJUST_SECONDS)}
                 accessibilityLabel={`Take ${REST_ADJUST_SECONDS} seconds off this rest`}
                 hitSlop={8}
                 style={[styles.adjustButton, { backgroundColor: palette.button }]}
@@ -457,7 +475,7 @@ function Player({
                 </Text>
               </Pressable>
               <Pressable
-                onPress={() => runner.adjust(REST_ADJUST_SECONDS)}
+                onPress={() => adjustRest(REST_ADJUST_SECONDS)}
                 accessibilityLabel={`Add ${REST_ADJUST_SECONDS} seconds to this rest`}
                 hitSlop={8}
                 style={[styles.adjustButton, { backgroundColor: palette.button }]}
@@ -472,19 +490,21 @@ function Player({
 
         {/* Controls */}
         <View style={[styles.controls, { paddingBottom: Math.max(insets.bottom, space.xxl) }]}>
-          <Pressable
+          <AnimatedPressable
             onPress={runner.previous}
+            haptic="tap"
             style={[styles.sideControl, { backgroundColor: palette.button }]}
           >
             <Text style={{ fontSize: 14, color: palette.ink2 }}>◀◀</Text>
-          </Pressable>
+          </AnimatedPressable>
 
           {/* On a gated step the centre control becomes Done rather than
               play/pause. There is no clock to pause, so a pause button would be
               a control that does nothing; Done is the only thing the runner is
               actually waiting for. */}
-          <Pressable
+          <AnimatedPressable
             onPress={runner.remaining === null ? runner.complete : runner.toggle}
+            haptic="confirm"
             style={[styles.centreControl, { backgroundColor: palette.ink }]}
           >
             {runner.remaining === null ? (
@@ -497,14 +517,15 @@ function Player({
                 <View style={[styles.pauseBar, { backgroundColor: palette.bg }]} />
               </View>
             )}
-          </Pressable>
+          </AnimatedPressable>
 
-          <Pressable
+          <AnimatedPressable
             onPress={runner.skip}
+            haptic="tap"
             style={[styles.sideControl, { backgroundColor: palette.button }]}
           >
             <Text style={{ fontSize: 14, color: palette.ink2 }}>▶▶</Text>
-          </Pressable>
+          </AnimatedPressable>
         </View>
       </View>
 
@@ -518,7 +539,10 @@ function Player({
             destructive: true,
             onPress: () => {
               setLeaving(false);
-              router.back();
+              // Dismiss the native modal before changing the navigation tree.
+              // This avoids tearing down its Android host inside its press
+              // dispatch callback.
+              requestAnimationFrame(() => router.back());
             },
           },
           {
@@ -526,7 +550,7 @@ function Player({
             primary: true,
             onPress: () => {
               setLeaving(false);
-              savePartial();
+              requestAnimationFrame(savePartial);
             },
           },
         ]}

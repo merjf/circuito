@@ -10,12 +10,13 @@
 
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
-import { LayoutAnimation, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { LayoutAnimation, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Animated, { FadeIn, LinearTransition, ReduceMotion } from 'react-native-reanimated';
 
 import { ActionSheet } from '@/components/ActionSheet';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
-import { BinButton, Card, MonoLabel } from '@/components/ui';
+import { AnimatedPressable, BinButton, Card, MonoLabel } from '@/components/ui';
 import { deleteSession, listExercises, listSessions, setLogsSince } from '@/db/repo';
 import { formatDayDate, formatMonth, formatShortDate, startOfMonth } from '@/domain/dates';
 import { formatDuration } from '@/domain/duration';
@@ -32,7 +33,7 @@ import {
   type TagVolume,
 } from '@/domain/stats';
 import type { Exercise, Session, SetLog } from '@/domain/types';
-import { color, radius, space } from '@/theme/tokens';
+import { color, motion, radius, space } from '@/theme/tokens';
 import { type as t } from '@/theme/type';
 
 const CHART_HEIGHT = 92;
@@ -138,7 +139,12 @@ export default function HistoryScreen() {
 
       {stats && sessions && sessions.length > 0 && (
         <>
-          <View style={styles.topCards}>
+          <Animated.View
+            style={styles.topCards}
+            entering={FadeIn
+              .duration(motion.enter.duration)
+              .reduceMotion(ReduceMotion.System)}
+          >
             <View style={[styles.topCard, { backgroundColor: color.accent }]}>
               <MonoLabel tone={color.darkMuted}>Streak</MonoLabel>
               <View style={styles.figureRow}>
@@ -177,7 +183,7 @@ export default function HistoryScreen() {
                 </Text>
               </View>
             </Card>
-          </View>
+          </Animated.View>
 
           {monthOpen && <MonthDetail summary={stats.summary} topTag={monthTopTag} />}
 
@@ -239,16 +245,17 @@ export default function HistoryScreen() {
               {/* Filters the LIST only, never the stats above it. A streak
                   that changed when you filtered by training would be a
                   different statistic wearing the same label. */}
-              <Pressable
+              <AnimatedPressable
                 onPress={() => setFiltering(true)}
                 hitSlop={12}
+                haptic="select"
                 accessibilityRole="button"
                 accessibilityLabel={`Filter: ${filterName ?? 'all trainings'}. Change`}
               >
                 <MonoLabel tone={color.inkMuted}>
                   {filterName ? `Filter · ${filterName}` : 'Filter · All'}
                 </MonoLabel>
-              </Pressable>
+              </AnimatedPressable>
             </View>
 
             {visible.length === 0 ? (
@@ -256,10 +263,11 @@ export default function HistoryScreen() {
                 Nothing for that training yet.
               </Text>
             ) : (
-              visible.map((session) => (
+              visible.map((session, index) => (
                 <SessionRow
                   key={session.id}
                   session={session}
+                  index={index}
                   onDelete={() => setSessionToDelete(session)}
                 />
               ))
@@ -295,11 +303,24 @@ export default function HistoryScreen() {
           {
             label: 'Delete',
             destructive: true,
-            onPress: async () => {
+            onPress: () => {
               if (!sessionToDelete) return;
-              await deleteSession(sessionToDelete.id);
+              const id = sessionToDelete.id;
+              // Close the native modal before changing the list beneath it.
+              // On Android, updating both layers in the same press/animation
+              // frame can tear down the modal host while it is dispatching.
               setSessionToDelete(null);
-              reload();
+              void (async () => {
+                try {
+                  await deleteSession(id);
+                  reload();
+                } catch (error) {
+                  // A rejected async press handler becomes an unhandled JS
+                  // exception in release. Keep the screen mounted and leave
+                  // the row in place if storage refuses the delete.
+                  console.error('Could not delete history session', error);
+                }
+              })();
             },
           },
         ]}
@@ -437,12 +458,28 @@ function TagBars({ data }: { data: TagVolume[] }) {
   );
 }
 
-function SessionRow({ session, onDelete }: { session: Session; onDelete: () => void }) {
+function SessionRow({
+  session,
+  index,
+  onDelete,
+}: {
+  session: Session;
+  index: number;
+  onDelete: () => void;
+}) {
   const rounds = `${session.roundsCompleted}/${session.roundsPlanned} ${
     session.roundsPlanned === 1 ? 'round' : 'rounds'
   }`;
 
   return (
+    <Animated.View
+      entering={FadeIn
+        .duration(motion.enter.duration)
+        .delay(Math.min(index, motion.enterStaggerMax) * motion.enterStagger)
+        .reduceMotion(ReduceMotion.System)}
+      layout={LinearTransition.duration(motion.layout.duration)
+        .reduceMotion(ReduceMotion.System)}
+    >
     <Card
       style={styles.sessionRow}
       onPress={() =>
@@ -482,6 +519,7 @@ function SessionRow({ session, onDelete }: { session: Session; onDelete: () => v
         onPress={onDelete}
       />
     </Card>
+    </Animated.View>
   );
 }
 

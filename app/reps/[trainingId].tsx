@@ -45,7 +45,6 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   LayoutAnimation,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -53,12 +52,13 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Animated, { LinearTransition, ReduceMotion } from 'react-native-reanimated';
 
 import { ActionSheet } from '@/components/ActionSheet';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { RestSheet } from '@/components/RestSheet';
 import { Toast } from '@/components/Toast';
-import { Card, MonoLabel, PrimaryButton, ScreenHeader } from '@/components/ui';
+import { AnimatedPressable, Card, MonoLabel, PrimaryButton, ScreenHeader } from '@/components/ui';
 import {
   deleteSession,
   deleteSetLog,
@@ -100,7 +100,7 @@ import { useConfirmedBack } from '@/hooks/useConfirmedBack';
 import { useSettings } from '@/hooks/useSettings';
 import { useCueSounds } from '@/runner/useCueSounds';
 import { useRestTimer } from '@/runner/useRestTimer';
-import { color, radius, space } from '@/theme/tokens';
+import { color, motion, radius, space } from '@/theme/tokens';
 import { type as t } from '@/theme/type';
 
 /** One editable row: a step, in a round, at a set index. */
@@ -833,8 +833,12 @@ function RoundCard({
 }) {
   const complete = of > 0 && done >= of;
   return (
+    <Animated.View
+      layout={LinearTransition.duration(motion.layout.duration)
+        .reduceMotion(ReduceMotion.System)}
+    >
     <Card style={{ marginTop: space.sm, overflow: 'hidden' }}>
-      <Pressable style={styles.roundHeader} onPress={onToggle} hitSlop={4}>
+      <AnimatedPressable style={styles.roundHeader} onPress={onToggle} hitSlop={4} haptic="tap">
         <Text style={{ color: color.inkMuted, fontSize: 12, width: 14 }}>
           {open ? '⌄' : '›'}
         </Text>
@@ -847,10 +851,11 @@ function RoundCard({
         >
           {complete ? 'done' : `${done}/${of}`}
         </Text>
-      </Pressable>
+      </AnimatedPressable>
 
       {open && <View>{children}</View>}
     </Card>
+    </Animated.View>
   );
 }
 
@@ -966,9 +971,9 @@ function ExerciseGroup({
         );
       })}
 
-      <Pressable onPress={onAddSet} hitSlop={6} style={styles.addSet}>
-        <Text style={[t.monoLabel, { color: color.inkGhost }]}>+ Add set</Text>
-      </Pressable>
+      <AnimatedPressable onPress={onAddSet} hitSlop={6} haptic="tap" style={styles.addSet}>
+        <Text style={[t.monoLabel, { color: color.inkFaint }]}>+ Add set</Text>
+      </AnimatedPressable>
     </View>
   );
 }
@@ -1051,11 +1056,18 @@ function SetRow({
     : null;
 
   return (
+    <Animated.View
+      layout={LinearTransition.duration(motion.layout.duration)
+        .reduceMotion(ReduceMotion.System)}
+    >
     <View style={[styles.row, log && styles.rowDone]}>
-      <Pressable
+      <AnimatedPressable
         style={styles.colSet}
         hitSlop={8}
         disabled={!log}
+        haptic="tap"
+        toScale={1}
+        toOpacity={0.7}
         accessibilityRole="button"
         accessibilityLabel={log ? 'Change set type' : `Set ${setIndex}`}
         onPress={() => log && onTypeMenu(log)}
@@ -1068,16 +1080,19 @@ function SetRow({
         >
           {mark ?? setIndex}
         </Text>
-      </Pressable>
+      </AnimatedPressable>
 
       {/* Tapping shows where the number came from. It may be from a different
           circuit entirely (decision D7), and a bare number silently borrowed
           from another context is the kind of quiet fiction the rest of this
           app refuses. */}
-      <Pressable
+      <AnimatedPressable
         style={styles.colPrev}
         hitSlop={6}
         disabled={previous == null}
+        haptic="tap"
+        toScale={1}
+        toOpacity={0.7}
         onPress={() => setShowProvenance((v) => !v)}
       >
         <Text style={[t.monoValue, { color: color.inkGhost }]} numberOfLines={1}>
@@ -1088,7 +1103,7 @@ function SetRow({
             {new Date(previous.completedAt).toLocaleDateString()}
           </Text>
         )}
-      </Pressable>
+      </AnimatedPressable>
 
       {fields.weight && (
         <TextInput
@@ -1151,9 +1166,12 @@ function SetRow({
               timer != null && { color: color.softGreenIcon },
             ]}
           />
-          <Pressable
+          <AnimatedPressable
             hitSlop={6}
             disabled={targetSeconds <= 0}
+            haptic="select"
+            toScale={1}
+            toOpacity={0.7}
             accessibilityRole="button"
             accessibilityLabel={timer ? 'Stop timing this set' : 'Time this set'}
             onPress={() => (timer ? onStopTimer() : onStartTimer(targetSeconds))}
@@ -1164,19 +1182,22 @@ function SetRow({
                 t.monoValue,
                 {
                   fontSize: 11,
-                  color: targetSeconds <= 0 ? color.inkGhostest : color.inkMuted,
+                  color: targetSeconds <= 0 ? color.inkDisabled : color.inkMuted,
                 },
               ]}
             >
               {timer ? '■' : '▶'}
             </Text>
-          </Pressable>
+          </AnimatedPressable>
         </View>
       )}
 
-      <Pressable
+      <AnimatedPressable
         style={styles.colCheck}
         hitSlop={6}
+        haptic="success"
+        toScale={1}
+        toOpacity={0.7}
         accessibilityRole="checkbox"
         accessibilityState={{ checked: log != null }}
         accessibilityLabel={`Set ${setIndex}`}
@@ -1191,8 +1212,9 @@ function SetRow({
         <View style={[styles.check, log && styles.checkOn]}>
           {log && <Text style={styles.checkGlyph}>✓</Text>}
         </View>
-      </Pressable>
+      </AnimatedPressable>
     </View>
+    </Animated.View>
   );
 }
 
@@ -1236,8 +1258,8 @@ const styles = StyleSheet.create({
   timeInput: { flex: 1, paddingHorizontal: 2 },
   timeButton: { width: 18, alignItems: 'center' },
   colCheck: { width: 34, alignItems: 'flex-end' },
-  headerText: { color: color.inkGhostest, textAlign: 'center' },
-  headerLeft: { color: color.inkGhostest },
+  headerText: { color: color.inkFaint, textAlign: 'center' },
+  headerLeft: { color: color.inkFaint },
   row: {
     flexDirection: 'row',
     alignItems: 'center',

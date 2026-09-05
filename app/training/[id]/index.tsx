@@ -11,6 +11,7 @@ import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useState, useMemo } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Animated, { FadeIn, ReduceMotion } from 'react-native-reanimated';
 
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import {
@@ -34,7 +35,7 @@ import {
 import { exerciseTypesOf, type ExerciseTypes } from '@/domain/queue';
 import type { Block, Exercise, Training } from '@/domain/types';
 import { formatTrainingWeight } from '@/domain/weight';
-import { color, radius, size, space } from '@/theme/tokens';
+import { color, motion, radius, size, space } from '@/theme/tokens';
 import { type as t } from '@/theme/type';
 
 export default function TrainingDetailScreen() {
@@ -156,6 +157,7 @@ export default function TrainingDetailScreen() {
             block={block}
             exercises={exercises}
             types={types}
+            index={index}
             nextBlockLabel={training.blocks[index + 1]?.label}
           />
         ))}
@@ -213,15 +215,23 @@ function BlockCard({
   block,
   exercises,
   types,
+  index,
   nextBlockLabel,
 }: {
   block: Block;
   exercises: Map<string, Exercise>;
   /** Read per step: within one block, each exercise brings its own units. */
   types: ExerciseTypes;
+  index: number;
   nextBlockLabel?: string;
 }) {
   return (
+    <Animated.View
+      entering={FadeIn
+        .duration(motion.enter.duration)
+        .delay(Math.min(index, motion.enterStaggerMax) * motion.enterStagger)
+        .reduceMotion(ReduceMotion.System)}
+    >
     <Card style={{ marginTop: space.sm, overflow: 'hidden' }}>
       <View style={styles.blockHeader}>
         <MonoLabel tone={color.ink}>{block.label}</MonoLabel>
@@ -268,6 +278,7 @@ function BlockCard({
         </View>
       )}
     </Card>
+    </Animated.View>
   );
 }
 

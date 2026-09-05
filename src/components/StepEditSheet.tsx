@@ -12,8 +12,10 @@
  * language as the three.
  */
 
+import { useCallback, useEffect, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Animated, { FadeIn, FadeOut, runOnJS } from 'react-native-reanimated';
 
 import {
   distanceAt,
@@ -28,7 +30,7 @@ import {
 import { fieldsFor, TYPE_COPY, type Equipment, type ExerciseType } from '@/domain/exerciseType';
 import { formatPlateBreakdown, platesFor } from '@/domain/plateCalc';
 import { useSettings } from '@/hooks/useSettings';
-import { color, radius, shadow, space } from '@/theme/tokens';
+import { color, elevation, motion, radius, space } from '@/theme/tokens';
 import { type as t } from '@/theme/type';
 import { AnimatedPressable, MonoLabel, PrimaryButton, SecondaryButton, Stepper, TypeTag } from './ui';
 
@@ -71,27 +73,65 @@ export function StepEditSheet({
   onClose: () => void;
 }) {
   const insets = useSafeAreaInsets();
-  if (!context) return null;
 
-  const { step } = context;
+  // PLAN_ui_polish.md §8 — `animationType="slide"` replaced with
+  // Short FadeIn/FadeOut transitions (Reanimated). Same "hold the last non-null
+  // context so there's still something to render during the exit animation"
+  // shape as `ValueEditSheet` — see that file for the fuller explanation of
+  // why `exiting` needs a conditionally-rendered child rather than a prop
+  // change, and why `rendered` (not `context != null`) is what actually
+  // gates the `Modal`'s own mounted lifetime.
+  const [lastContext, setLastContext] = useState(context);
+  const [rendered, setRendered] = useState(context != null);
+
+  useEffect(() => {
+    if (context != null) {
+      setLastContext(context);
+      setRendered(true);
+    }
+  }, [context]);
+
+  const handleExitDone = useCallback((finished?: boolean) => {
+    'worklet';
+    if (finished === false) return;
+    runOnJS(setRendered)(false);
+  }, []);
+
+  if (!rendered || !lastContext) return null;
+  const shown = context ?? lastContext;
+
+  const { step } = shown;
   const set = (patch: Partial<Step>) => onChange({ ...step, ...patch });
   // Same table `builder.tsx`'s StepRow reads.
-  const fields = fieldsFor(context.type);
+  const fields = fieldsFor(shown.type);
   const varies = targetsVary(step);
-  const rounds = Array.from({ length: Math.max(1, context.rounds) }, (_, i) => i + 1);
+  const rounds = Array.from({ length: Math.max(1, shown.rounds) }, (_, i) => i + 1);
 
   return (
-    <Modal visible transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable style={styles.scrim} onPress={onClose} />
+    <Modal visible transparent animationType="none" onRequestClose={onClose}>
+      {context != null && (
+        <Animated.View
+          style={StyleSheet.absoluteFill}
+          entering={FadeIn.duration(160)}
+          exiting={FadeOut.duration(motion.sheetOut.duration).withCallback(handleExitDone)}
+        >
+          <Pressable style={styles.scrim} onPress={onClose} />
+        </Animated.View>
+      )}
+      {context != null && (
+      <Animated.View
+        entering={FadeIn.duration(motion.sheetIn.duration)}
+        exiting={FadeOut.duration(motion.sheetOut.duration)}
+      >
       <View style={[styles.sheet, { paddingBottom: insets.bottom + space.l }]}>
         <View style={styles.grabber} />
 
         <ScrollView bounces={false}>
           <Text style={[t.cardTitle, { color: color.ink, fontSize: 15 }]}>
-            {context.exerciseName}
+            {shown.exerciseName}
           </Text>
           <Text style={[t.body, { color: color.inkFaint, fontSize: 11.5, marginTop: 4 }]}>
-            {context.blockLabel} · exercise {context.position} of {context.total}
+            {shown.blockLabel} · exercise {shown.position} of {shown.total}
           </Text>
 
           {/* What this exercise is measured in. Read-only here: it belongs to
@@ -101,7 +141,7 @@ export function StepEditSheet({
             <MonoLabel tone={color.inkMuted} style={{ flex: 1 }}>
               Measured in
             </MonoLabel>
-            <TypeTag label={TYPE_COPY[context.type].chips.join(' · ')} />
+            <TypeTag label={TYPE_COPY[shown.type].chips.join(' · ')} />
           </View>
 
           {/* Reads `step.workSeconds`, not `secondsAt(step, 1)`. The two differ
@@ -142,7 +182,7 @@ export function StepEditSheet({
 
           <Row
             label="Rest after"
-            hint={context.restIsDead ? 'not played — runs into the round rest' : undefined}
+            hint={shown.restIsDead ? 'not played — runs into the round rest' : undefined}
           >
             <Stepper
               large
@@ -162,7 +202,7 @@ export function StepEditSheet({
             <Row
               label="Target reps"
               hint={
-                context.rounds > 1 ? 'the same in every round' : undefined
+                shown.rounds > 1 ? 'the same in every round' : undefined
               }
             >
               <Stepper
@@ -185,7 +225,7 @@ export function StepEditSheet({
                   value={repsAt(step, round) ?? 0}
                   step={LIMITS.repsIncrement}
                   min={0}
-                  onChange={(v) => onChange(withRepsAt(step, round, v, context.rounds))}
+                  onChange={(v) => onChange(withRepsAt(step, round, v, shown.rounds))}
                   format={(v) => (v === 0 ? '—' : String(v))}
                 />
               </Row>
@@ -194,13 +234,13 @@ export function StepEditSheet({
           {/* The toggle between the two. Collapsing keeps ROUND ONE's value
               rather than asking which to keep — it is the number the user
               started from, and the one the summary line led with. */}
-          {fields.reps && context.rounds > 1 && (
+          {fields.reps && shown.rounds > 1 && (
             <AnimatedPressable
               onPress={() =>
                 onChange(
                   varies
                     ? withUniformReps(step, repsAt(step, 1))
-                    : withRepsAt(step, 1, repsAt(step, 1) ?? 0, context.rounds),
+                    : withRepsAt(step, 1, repsAt(step, 1) ?? 0, shown.rounds),
                 )
               }
               hitSlop={8}
@@ -215,7 +255,7 @@ export function StepEditSheet({
           )}
 
           {fields.weight && (
-          <Row label={context.type === 'assistedBodyweight' ? 'Assistance' : 'Weight'}>
+          <Row label={shown.type === 'assistedBodyweight' ? 'Assistance' : 'Weight'}>
             <Stepper
               large
               value={step.weightKg ?? 0}
@@ -247,7 +287,7 @@ export function StepEditSheet({
           {/* B9 — gated on the exercise's own `equipment`, never on `type`: a
               barbell can carry any weighted type (weightReps, durationWeight,
               weightDistance...), and a dumbbell exercise must never show it. */}
-          {fields.weight && context.equipment === 'barbell' && step.weightKg != null && (
+          {fields.weight && shown.equipment === 'barbell' && step.weightKg != null && (
             <PlateRow targetKg={step.weightKg} />
           )}
         </ScrollView>
@@ -261,6 +301,8 @@ export function StepEditSheet({
           />
         </View>
       </View>
+      </Animated.View>
+      )}
     </Modal>
   );
 }
@@ -324,7 +366,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.gutter,
     paddingTop: 10,
     maxHeight: '78%',
-    ...shadow.sheet,
+    ...elevation.e4,
   },
   grabber: {
     width: 34,

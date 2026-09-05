@@ -19,21 +19,22 @@
 
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Animated, { FadeIn, ReduceMotion } from 'react-native-reanimated';
 import * as Sharing from 'expo-sharing';
 import { captureRef } from 'react-native-view-shot';
 
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { ShareCard } from '@/components/ShareCard';
 import { Toast } from '@/components/Toast';
-import { IconButton, MonoLabel, PrimaryButton, SecondaryButton, StatCard, SunkenRow } from '@/components/ui';
+import { AnimatedPressable, DestructiveButton, IconButton, MonoLabel, PrimaryButton, SecondaryButton, StatCard, SunkenRow } from '@/components/ui';
 import { deleteSession, getSession, listSetLogs } from '@/db/repo';
 import { formatDayDateTime } from '@/domain/dates';
 import { formatDuration } from '@/domain/duration';
 import { formatLog } from '@/domain/logging';
 import type { Session, SetLog } from '@/domain/types';
-import { color, radius, size, space } from '@/theme/tokens';
+import { color, motion, radius, size, space } from '@/theme/tokens';
 import { type as t } from '@/theme/type';
 
 export default function SessionSummaryScreen() {
@@ -113,9 +114,9 @@ export default function SessionSummaryScreen() {
             history entry — which never had a "Save & close" to lean on —
             needs its own way back. */}
         {fromHistory && (
-          <Pressable onPress={() => router.back()} hitSlop={16} style={styles.back}>
+          <AnimatedPressable onPress={() => router.back()} hitSlop={16} haptic="tap" style={styles.back}>
             <Text style={{ fontSize: 22, lineHeight: 26, color: color.ink }}>←</Text>
-          </Pressable>
+          </AnimatedPressable>
         )}
 
         <View style={styles.headerRow}>
@@ -151,7 +152,12 @@ export default function SessionSummaryScreen() {
             The work/rest split below stays timed-only: those two numbers come
             from the runner banking time per cue kind, and nothing in a logged
             session produces them. */}
-        <View style={styles.statRow}>
+        <Animated.View
+          style={styles.statRow}
+          entering={FadeIn
+            .duration(motion.enter.duration)
+            .reduceMotion(ReduceMotion.System)}
+        >
           {session.elapsedSeconds > 0 && (
             <StatCard label="Elapsed" value={formatDuration(session.elapsedSeconds)} />
           )}
@@ -159,12 +165,18 @@ export default function SessionSummaryScreen() {
             label="Rounds"
             value={`${session.roundsCompleted} / ${session.roundsPlanned}`}
           />
-        </View>
+        </Animated.View>
         {session.workSeconds + session.restSeconds > 0 && (
-          <View style={styles.statRow}>
+          <Animated.View
+            style={styles.statRow}
+            entering={FadeIn
+              .duration(motion.enter.duration)
+              .delay(1 * motion.enterStagger)
+              .reduceMotion(ReduceMotion.System)}
+          >
             <StatCard label="Work" value={formatDuration(session.workSeconds)} />
             <StatCard label="Rest" value={formatDuration(session.restSeconds)} />
-          </View>
+          </Animated.View>
         )}
 
         {session.workSeconds + session.restSeconds > 0 && (
@@ -230,12 +242,11 @@ export default function SessionSummaryScreen() {
           }
         />
         {fromHistory ? (
-          <Pressable
+          <DestructiveButton
+            label="Delete"
             onPress={() => setConfirmingDelete(true)}
-            style={[styles.deleteButton, { flex: 1.4 }]}
-          >
-            <Text style={styles.deleteLabel}>Delete</Text>
-          </Pressable>
+            style={{ flex: 1.4 }}
+          />
         ) : (
           <PrimaryButton label="Save & close" style={{ flex: 1.4 }} onPress={close} />
         )}

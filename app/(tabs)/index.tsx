@@ -10,7 +10,6 @@ import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -18,12 +17,14 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Animated, { FadeIn, LinearTransition, ReduceMotion } from 'react-native-reanimated';
 
 import { ActionSheet } from '@/components/ActionSheet';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { StructureStrip } from '@/components/StructureStrip';
 import {
   AddCircle,
+  AnimatedPressable,
   Card,
   FilterPill,
   MonoLabel,
@@ -49,7 +50,7 @@ import {
 import { exerciseTypesOf, type ExerciseTypes } from '@/domain/queue';
 import type { Session, Training } from '@/domain/types';
 import { formatTrainingWeight } from '@/domain/weight';
-import { color, radius, space } from '@/theme/tokens';
+import { color, motion, radius, space } from '@/theme/tokens';
 import { type as t } from '@/theme/type';
 
 /**
@@ -224,14 +225,15 @@ export default function HomeScreen() {
               style={[styles.search, query.length > 0 && { paddingRight: 34 }]}
             />
             {query.length > 0 && (
-              <Pressable
+              <AnimatedPressable
                 onPress={() => setQuery('')}
                 hitSlop={10}
+                haptic="tap"
                 accessibilityLabel="Clear search"
                 style={styles.searchClear}
               >
                 <Text style={styles.searchClearGlyph}>×</Text>
-              </Pressable>
+              </AnimatedPressable>
             )}
           </View>
 
@@ -274,11 +276,12 @@ export default function HomeScreen() {
           same batch, so this never actually withholds anything the spinner
           above is not already covering. */}
       {types !== null &&
-        filtered.map((training) => (
+        filtered.map((training, index) => (
           <TrainingCard
             key={training.id}
             training={training}
             exerciseTypes={types}
+            index={index}
             onMenu={() => setMenuFor(training)}
           />
         ))}
@@ -353,10 +356,12 @@ export default function HomeScreen() {
 function TrainingCard({
   training,
   exerciseTypes,
+  index,
   onMenu,
 }: {
   training: Training;
   exerciseTypes: ExerciseTypes;
+  index: number;
   onMenu: () => void;
 }) {
   const headline = trainingHeadline(training, exerciseTypes);
@@ -370,6 +375,14 @@ function TrainingCard({
   ].filter(Boolean);
 
   return (
+    <Animated.View
+      entering={FadeIn
+        .duration(motion.enter.duration)
+        .delay(Math.min(index, motion.enterStaggerMax) * motion.enterStagger)
+        .reduceMotion(ReduceMotion.System)}
+      layout={LinearTransition.duration(motion.layout.duration)
+        .reduceMotion(ReduceMotion.System)}
+    >
     <Card
       style={styles.card}
       onPress={() => router.push({ pathname: '/training/[id]', params: { id: training.id } })}
@@ -423,15 +436,22 @@ function TrainingCard({
         />
       </View>
     </Card>
+    </Animated.View>
   );
 }
 
 function LastSession({ session }: { session: Session }) {
   return (
-    <View style={{ marginTop: space.xl }}>
+    <Animated.View
+      style={{ marginTop: space.xl }}
+      entering={FadeIn
+        .duration(motion.enter.duration)
+        .reduceMotion(ReduceMotion.System)}
+    >
       <MonoLabel>Last session</MonoLabel>
-      <Pressable
+      <AnimatedPressable
         style={styles.lastSession}
+        haptic="tap"
         onPress={() => router.push({ pathname: '/session/[id]', params: { id: session.id } })}
       >
         <View style={{ flex: 1 }}>
@@ -445,17 +465,17 @@ function LastSession({ session }: { session: Session }) {
         <Text style={[t.monoValueLarge, { color: color.inkMuted }]}>
           {formatDuration(session.elapsedSeconds)}
         </Text>
-      </Pressable>
-    </View>
+      </AnimatedPressable>
+    </Animated.View>
   );
 }
 
 /** Handoff § "Empty states": a single dashed create card, nothing else. */
 function EmptyState({ onPress }: { onPress: () => void }) {
   return (
-    <Pressable style={styles.empty} onPress={onPress}>
+    <AnimatedPressable style={styles.empty} haptic="tap" onPress={onPress}>
       <Text style={[t.exerciseRow, { color: color.inkMuted }]}>Create your first training</Text>
-    </Pressable>
+    </AnimatedPressable>
   );
 }
 

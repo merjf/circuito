@@ -16,17 +16,29 @@ import { useFonts } from 'expo-font';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
-import { ScrollView, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import Animated, { FadeOut, ReduceMotion } from 'react-native-reanimated';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { SettingsProvider } from '@/hooks/useSettings';
 
+import SplashScreen from '@/components/SplashScreen';
 import { openDatabase } from '@/db/repo';
 import { color } from '@/theme/tokens';
 
+/**
+ * Once fonts and the database are ready, keep the animated splash on screen
+ * for a short beat. This timer deliberately starts *after* initialization:
+ * starting it alongside loading makes a slower cold start jump straight from
+ * the logo to Home at the very moment the app becomes ready.
+ */
+const SPLASH_AFTER_READY_MS = 1000;
+/** Cross-fade from the splash to the app underneath it. */
+const SPLASH_FADE_MS = 320;
+
 export default function RootLayout() {
-  const [fontsLoaded] = useFonts({
+  const [fontsLoaded, fontsError] = useFonts({
     Inter_400Regular,
     Inter_500Medium,
     Inter_600SemiBold,
@@ -35,13 +47,49 @@ export default function RootLayout() {
   });
   const [dbReady, setDbReady] = useState(false);
   const [dbError, setDbError] = useState<string | null>(null);
+  const [startupTimedOut, setStartupTimedOut] = useState(false);
+  const [postReadySplashElapsed, setPostReadySplashElapsed] = useState(false);
+  const [splashVisible, setSplashVisible] = useState(true);
 
   useEffect(() => {
+    let active = true;
     openDatabase().then(
-      () => setDbReady(true),
-      (error: unknown) => setDbError(error instanceof Error ? error.message : String(error)),
+      () => {
+        if (active) setDbReady(true);
+      },
+      (error: unknown) => {
+        if (active) setDbError(error instanceof Error ? error.message : String(error));
+      },
     );
+    return () => {
+      active = false;
+    };
   }, []);
+
+  const startupReady = fontsLoaded && dbReady;
+
+  // Removing the overlay from a tree that stays mounted is what lets its
+  // `exiting` animation play at all — the same rule the sheets and dialogs in
+  // `components/` follow. So the splash is dismissed by flipping this flag,
+  // never by swapping which subtree renders.
+  useEffect(() => {
+    if (!startupReady) return;
+    const timer = setTimeout(() => setPostReadySplashElapsed(true), SPLASH_AFTER_READY_MS);
+    return () => clearTimeout(timer);
+  }, [startupReady]);
+
+  useEffect(() => {
+    if (startupReady && postReadySplashElapsed) setSplashVisible(false);
+  }, [postReadySplashElapsed, startupReady]);
+
+  // Neither Expo Font nor SQLite guarantees a rejection when its native
+  // operation stalls. Do not turn that into an indistinguishable black screen:
+  // leave the app alive, but tell us exactly which startup dependency is stuck.
+  useEffect(() => {
+    if (fontsLoaded && dbReady) return;
+    const timeout = setTimeout(() => setStartupTimedOut(true), 12_000);
+    return () => clearTimeout(timeout);
+  }, [fontsLoaded, dbReady]);
 
   /**
    * A failed migration used to leave the app on a blank dark screen forever,
@@ -49,14 +97,19 @@ export default function RootLayout() {
    * appeared in the console. Anything that stops the database opening is fatal
    * and unrecoverable from inside the app, so say so on screen.
    */
-  if (dbError) {
+  const startupError = dbError ?? (fontsError ? fontsError.message : null);
+  if (startupError || startupTimedOut) {
+    const detail = startupError ?? [
+      fontsLoaded ? null : 'Fonts are still loading.',
+      dbReady ? null : 'The local database is still opening.',
+    ].filter(Boolean).join(' ');
     return (
       <ScrollView
         style={{ flex: 1, backgroundColor: color.darkBg }}
         contentContainerStyle={{ padding: 28, paddingTop: 96 }}
       >
         <Text style={{ fontFamily: 'Inter_700Bold', fontSize: 22, color: color.darkInk }}>
-          The database could not be opened.
+          The app could not finish starting.
         </Text>
         <Text
           style={{
@@ -68,7 +121,7 @@ export default function RootLayout() {
           }}
           selectable
         >
-          {dbError}
+          {detail}
         </Text>
         <Text
           style={{
@@ -79,26 +132,29 @@ export default function RootLayout() {
             marginTop: 22,
           }}
         >
-          This is usually a failed migration. Reinstalling the app clears the local
-          database and starts fresh — your trainings are stored only on this device,
-          so they are lost with it.
+          If the database is the problem, reinstalling the app clears the local
+          data and starts fresh. Your trainings are stored only on this device, so
+          they are lost with it.
         </Text>
       </ScrollView>
     );
   }
 
-  // Splash background is the player dark, so the first paint never flashes white.
-  if (!fontsLoaded || !dbReady) {
-    return <View style={{ flex: 1, backgroundColor: color.darkBg }} />;
-  }
+  // The old startup surface (a spinner plus "Loading app fonts…") is now the
+  // animated splash below. It is rendered as an OVERLAY inside the same tree as
+  // the app rather than as an early `return`, so the mark mounts once and keeps
+  // pulsing across the moment startup finishes — an early return would remount
+  // it there and restart its entrance mid-fade. The hang case is still covered:
+  // the 12s timeout above replaces the whole screen with the error text.
 
   // GestureHandlerRootView must wrap everything for the builder's drag-to-
   // reorder to receive touches at all.
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
+        <StatusBar style={splashVisible ? 'light' : 'dark'} />
+        {startupReady ? (
         <SettingsProvider>
-        <StatusBar style="dark" />
         <Stack
           screenOptions={{ headerShown: false, contentStyle: { backgroundColor: color.canvas } }}
         >
@@ -125,6 +181,15 @@ export default function RootLayout() {
           <Stack.Screen name="session/[id]" options={{ gestureEnabled: false }} />
         </Stack>
         </SettingsProvider>
+        ) : null}
+        {splashVisible ? (
+          <Animated.View
+            style={StyleSheet.absoluteFill}
+            exiting={FadeOut.duration(SPLASH_FADE_MS).reduceMotion(ReduceMotion.System)}
+          >
+            <SplashScreen />
+          </Animated.View>
+        ) : null}
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );

@@ -107,20 +107,24 @@ describe('the switch off must not shift a pixel', () => {
 
 describe('which face the player shows', () => {
   it('warns only inside the lead-in', () => {
-    expect(playerStateFor({ isRest: false, secondsRemaining: 10, leadSeconds: 3 })).toBe('work');
-    expect(playerStateFor({ isRest: false, secondsRemaining: 3, leadSeconds: 3 })).toBe('warning');
-    expect(playerStateFor({ isRest: false, secondsRemaining: 1, leadSeconds: 3 })).toBe('warning');
+    expect(playerStateFor({ isRest: false, isPrepare: false, secondsRemaining: 10, leadSeconds: 3 })).toBe('work');
+    expect(playerStateFor({ isRest: false, isPrepare: false, secondsRemaining: 3, leadSeconds: 3 })).toBe('warning');
+    expect(playerStateFor({ isRest: false, isPrepare: false, secondsRemaining: 1, leadSeconds: 3 })).toBe('warning');
   });
 
   it('never warns during a rest', () => {
-    expect(playerStateFor({ isRest: true, secondsRemaining: 1, leadSeconds: 3 })).toBe('rest');
+    expect(playerStateFor({ isRest: true, isPrepare: false, secondsRemaining: 1, leadSeconds: 3 })).toBe('rest');
+  });
+
+  it('uses the warning face throughout prepare, even when the lead is off', () => {
+    expect(playerStateFor({ isRest: false, isPrepare: true, secondsRemaining: 10, leadSeconds: 0 })).toBe('warning');
   });
 
   it('never warns on a gated cue, which has no end to count down to', () => {
-    expect(playerStateFor({ isRest: false, secondsRemaining: null, leadSeconds: 3 })).toBe('work');
+    expect(playerStateFor({ isRest: false, isPrepare: false, secondsRemaining: null, leadSeconds: 3 })).toBe('work');
   });
 
   it('never warns when the lead is switched off', () => {
-    expect(playerStateFor({ isRest: false, secondsRemaining: 0, leadSeconds: 0 })).toBe('work');
+    expect(playerStateFor({ isRest: false, isPrepare: false, secondsRemaining: 0, leadSeconds: 0 })).toBe('work');
   });
 });

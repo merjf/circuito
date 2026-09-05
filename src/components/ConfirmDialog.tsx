@@ -16,7 +16,7 @@ import type { ReactNode } from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { AnimatedPressable } from '@/components/ui';
-import { color, radius, space } from '@/theme/tokens';
+import { color, elevation, radius, space } from '@/theme/tokens';
 import { type as t } from '@/theme/type';
 
 export interface DialogAction {
@@ -48,60 +48,60 @@ export function ConfirmDialog({
       {/* Tapping outside cancels — the same as pressing Cancel, never the action. */}
       <Pressable style={styles.scrim} onPress={onCancel}>
         <Pressable style={styles.dialog} onPress={() => {}}>
-          <Text style={[t.cardTitle, { color: color.ink, fontSize: 17 }]}>{title}</Text>
+              <Text style={[t.cardTitle, { color: color.ink, fontSize: 17 }]}>{title}</Text>
 
-          {typeof message === 'string' ? (
-            <Text style={[t.body, styles.message]}>{message}</Text>
-          ) : (
-            message
-          )}
+              {typeof message === 'string' ? (
+                <Text style={[t.body, styles.message]}>{message}</Text>
+              ) : (
+                message
+              )}
 
-          <View style={styles.actions}>
-            <AnimatedPressable
-              style={[styles.button, styles.cancel]}
-              haptic={false}
-              toOpacity={0.6}
-              onPress={onCancel}
-            >
-              <Text style={[t.exerciseRow, { color: color.ink, fontSize: 14, textAlign: 'center' }]}>
-                {cancelLabel}
-              </Text>
-            </AnimatedPressable>
-
-            {actions.map((action) => (
-              <AnimatedPressable
-                key={action.label}
-                onPress={action.onPress}
-                haptic={action.destructive}
-                style={[
-                  styles.button,
-                  action.destructive
-                    ? styles.destructive
-                    : action.primary
-                      ? styles.primary
-                      : styles.cancel,
-                ]}
-              >
-                <Text
-                  style={[
-                    t.exerciseRow,
-                    {
-                      fontSize: 14,
-                      fontFamily: 'Inter_700Bold',
-                      textAlign: 'center',
-                      color: action.destructive
-                        ? color.softRedIcon
-                        : action.primary
-                          ? color.darkInk
-                          : color.ink,
-                    },
-                  ]}
+              <View style={styles.actions}>
+                <AnimatedPressable
+                  style={[styles.button, styles.cancel]}
+                  haptic="tap"
+                  toOpacity={0.6}
+                  onPress={onCancel}
                 >
-                  {action.label}
-                </Text>
-              </AnimatedPressable>
-            ))}
-          </View>
+                  <Text style={[t.exerciseRow, { color: color.ink, fontSize: 14, textAlign: 'center' }]}>
+                    {cancelLabel}
+                  </Text>
+                </AnimatedPressable>
+
+                {actions.map((action) => (
+                  <AnimatedPressable
+                    key={action.label}
+                    onPress={action.onPress}
+                    haptic={action.destructive ? 'confirm' : action.primary ? 'confirm' : 'tap'}
+                    style={[
+                      styles.button,
+                      action.destructive
+                        ? styles.destructive
+                        : action.primary
+                          ? styles.primary
+                          : styles.cancel,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        t.exerciseRow,
+                        {
+                          fontSize: 14,
+                          fontFamily: 'Inter_700Bold',
+                          textAlign: 'center',
+                          color: action.destructive
+                            ? color.softRedIcon
+                            : action.primary
+                              ? color.darkInk
+                              : color.ink,
+                        },
+                      ]}
+                    >
+                      {action.label}
+                    </Text>
+                  </AnimatedPressable>
+                ))}
+              </View>
         </Pressable>
       </Pressable>
     </Modal>
@@ -129,6 +129,11 @@ const styles = StyleSheet.create({
     // future addition to the card) can get silently clipped to invisible
     // by the border radius instead of simply overflowing it.
     overflow: 'visible',
+    // e4 — overlays get the deepest, static-only shadow (PLAN_ui_polish.md
+    // §3.6). This panel previously had no shadow at all. `overflow: 'visible'`
+    // above is what makes this safe on Android (the trap is `hidden`, not
+    // `visible`, cancelling the shadow).
+    ...elevation.e4,
   },
   message: { color: color.inkMuted, marginTop: 10, fontSize: 13.5 },
   // `minHeight` matches `button.height` below — a guard so the row can
@@ -138,9 +143,10 @@ const styles = StyleSheet.create({
   actions: { flexDirection: 'row', gap: 10, marginTop: space.xl, minHeight: 46 },
   button: {
     flex: 1,
-    minWidth: 0,
     height: 46,
     minHeight: 46,
+    minWidth: 45,
+    width: '100%',
     borderRadius: radius.button,
     alignItems: 'center',
     justifyContent: 'center',

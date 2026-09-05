@@ -16,7 +16,8 @@ import { Animated, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AnimatedPressable } from '@/components/ui';
-import { color, radius, space } from '@/theme/tokens';
+import { haptic } from '@/feedback/haptics';
+import { color, elevation, radius, space } from '@/theme/tokens';
 import { type as t } from '@/theme/type';
 
 /** Long enough to read a two-line notice, short enough not to sit in the way. */
@@ -40,6 +41,13 @@ export function Toast({
 
   useEffect(() => {
     if (title == null) return;
+
+    // Personal record notice — the one thing this component is used for
+    // (see the doc comment at the top of the file). Fired on mount, gated
+    // the same way the fade-in is, so two PRs from the same set (one
+    // `useEffect` run, `message` deliberately excluded from deps below)
+    // don't double-buzz.
+    haptic('success');
 
     opacity.setValue(0);
     Animated.timing(opacity, {
@@ -74,7 +82,7 @@ export function Toast({
           nothing here to confirm. */}
       <AnimatedPressable
         onPress={() => doneRef.current()}
-        haptic={false}
+        haptic="none"
         toScale={0.98}
         toOpacity={0.85}
         style={styles.toast}
@@ -111,6 +119,8 @@ const styles = StyleSheet.create({
     borderRadius: radius.card,
     paddingHorizontal: space.m,
     paddingVertical: space.sm,
+    // e3 — static only, no press state of its own (PLAN_ui_polish.md §3.6).
+    ...elevation.e3,
   },
   // A small filled square rather than a trophy or a star: the app draws its
   // marks from plain shapes, and an emoji here would be the one full-colour

@@ -2,7 +2,7 @@ import type { ReactElement } from 'react';
 import { Tabs } from 'expo-router';
 import { StyleSheet, Text, View } from 'react-native';
 
-import { color, size } from '@/theme/tokens';
+import { color, elevation, size } from '@/theme/tokens';
 import { type as t } from '@/theme/type';
 
 /**
@@ -95,11 +95,19 @@ function TabItem({
   focused: boolean;
   Icon: (props: IconProps) => ReactElement;
 }) {
-  const tone = focused ? color.accent : color.inkGhostest;
+  // Split tone (PLAN_ui_polish.md §2b, decided rev 3): the icon is a
+  // non-text mark needing 3:1 contrast, the 11px label is text needing AA's
+  // 4.5:1 — one shared `inkGhostest` (1.54:1) satisfied neither. `inkDisabled`
+  // (3.18:1) keeps the icon visibly lighter than the active `accent` so the
+  // tonal active/inactive read survives; `inkMuted` (4.90:1) clears AA for
+  // the label. If inactive labels ever start reading as active on device,
+  // the documented fallback is `inkDisabled` for both.
+  const iconTone = focused ? color.accent : color.inkDisabled;
+  const labelTone = focused ? color.accent : color.inkMuted;
   return (
     <View style={styles.item}>
-      <Icon tone={tone} focused={focused} />
-      <Text style={[t.monoLabelTiny, styles.label, { color: tone }]}>{label}</Text>
+      <Icon tone={iconTone} focused={focused} />
+      <Text style={[t.monoLabelTiny, styles.label, { color: labelTone }]}>{label}</Text>
     </View>
   );
 }
@@ -156,8 +164,20 @@ const styles = StyleSheet.create({
     backgroundColor: color.canvas,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: color.divider,
+    // e3, offset upward: the bar floats over scrolling content beneath it
+    // (PLAN_ui_polish.md §3.6). Static only — the tab bar has no press state
+    // of its own to animate.
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -elevation.e3.shadowOffset.height },
+    shadowOpacity: elevation.e3.shadowOpacity,
+    shadowRadius: elevation.e3.shadowRadius,
+    elevation: elevation.e3.elevation,
   },
-  item: { alignItems: 'center', gap: 5, width: 80, paddingTop: 6, paddingBottom: 8 },
+  // paddingTop 6 -> 14: with only 6px the icon crowded the bar's top hairline,
+  // which made the whole column read as sitting too high in the bar. The extra
+  // 8px is paid for by `size.tabBar` going 64 -> 72, so the label keeps the
+  // same distance from the home-indicator inset below it.
+  item: { alignItems: 'center', gap: 5, width: 80, paddingTop: 14, paddingBottom: 8 },
   icon: { width: 18, height: 18, alignItems: 'center', justifyContent: 'center' },
   stack: { justifyContent: 'space-between', paddingVertical: 3 },
   bars: { flexDirection: 'row', alignItems: 'flex-end', gap: 2.5 },

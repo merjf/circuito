@@ -22,11 +22,11 @@
  */
 
 import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ConfirmDialog } from '@/components/ConfirmDialog';
-import { FilterPill, MiniStepper, MonoLabel, Stepper } from '@/components/ui';
+import { AnimatedPressable, FilterPill, MiniStepper, MonoLabel, Stepper } from '@/components/ui';
 import { ValueEditSheet, type ValueEditContext } from '@/components/ValueEditSheet';
 import {
   BAR_WEIGHT_LIMITS,
@@ -151,14 +151,14 @@ export default function SettingsScreen() {
         <MonoLabel>Sound settings</MonoLabel>
         {SOUND_EVENTS.map((event) => (
           <View key={event}>
-            <Pressable style={styles.row} onPress={() => setPicking(event)}>
+            <AnimatedPressable style={styles.row} haptic="select" onPress={() => setPicking(event)}>
               <Text style={[t.exerciseRow, { color: color.ink, flex: 1 }]}>
                 {SOUND_LABELS[event]}
               </Text>
               <MonoLabel tone={color.inkFaint}>
                 {SOUND_NAMES[settings.sounds[event]]}
               </MonoLabel>
-            </Pressable>
+            </AnimatedPressable>
 
             {/* The lead time belongs to its warning, so it sits under it
                 rather than in a group of its own where the pairing would
@@ -326,15 +326,19 @@ function ColorRow({
       <Text style={[t.exerciseRow, { color: color.ink }]}>{label}</Text>
       <View style={styles.swatches}>
         {options.map((hex) => (
-          <Pressable
+          <AnimatedPressable
             key={hex}
             onPress={() => onChange(hex)}
+            haptic="select"
+            toScale={0.9}
             style={[
               styles.swatch,
               { backgroundColor: hex },
               hex === value && styles.swatchActive,
             ]}
-          />
+          >
+            <View />
+          </AnimatedPressable>
         ))}
       </View>
       {isLowContrast(value) && (

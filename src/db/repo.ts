@@ -22,12 +22,16 @@ import type {
   Training,
 } from '../domain/types';
 import { DATABASE_NAME, MIGRATIONS } from './schema';
+import { seedApprovedLibrary } from './approvedSeed';
 
 let db: SQLite.SQLiteDatabase | null = null;
 
 export async function openDatabase(): Promise<SQLite.SQLiteDatabase> {
   if (db) return db;
-  db = await SQLite.openDatabaseAsync(DATABASE_NAME);
+  // Do not publish the connection until every bootstrap step has succeeded.
+  // Otherwise a failed migration leaves the module holding a half-initialized
+  // connection and every later caller incorrectly treats it as ready.
+  const connection = await SQLite.openDatabaseAsync(DATABASE_NAME);
   // `foreign_keys` is a PER-CONNECTION pragma — migration v1 turns it on
   // inside the SQL it runs against whatever connection first created the
   // database, but that has no effect on this connection or any other. Without
@@ -38,10 +42,12 @@ export async function openDatabase(): Promise<SQLite.SQLiteDatabase> {
   // That is exactly what broke `saveTraining` (steps.id) before this fix; see
   // `deleteSession` below, which worked around the same gotcha by deleting
   // explicitly rather than trusting cascade.
-  await db.execAsync('PRAGMA foreign_keys = ON');
-  await migrate(db);
-  await cleanupOrphanedMedia(db);
-  return db;
+  await connection.execAsync('PRAGMA foreign_keys = ON');
+  await migrate(connection);
+  await seedApprovedLibrary(connection);
+  await cleanupOrphanedMedia(connection);
+  db = connection;
+  return connection;
 }
 
 /**

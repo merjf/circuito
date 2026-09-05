@@ -24,28 +24,37 @@ import {
   type TextStyle,
   type ViewStyle,
 } from 'react-native';
-import * as Haptics from 'expo-haptics';
 import Animated, {
+  interpolate,
   useAnimatedStyle,
   useSharedValue,
-  withSpring,
   withTiming,
 } from 'react-native-reanimated';
 
 import type { MediaType } from '@/domain/types';
-import { color, mediaPlaceholder, radius, shadow, size, space } from '@/theme/tokens';
+import { color, elevation, elevationLevel, elevationOpacity, mediaPlaceholder, motion, press, radius, size, space } from '@/theme/tokens';
 import { type as t } from '@/theme/type';
+import { haptic as fireHaptic, type Haptic } from '@/feedback/haptics';
 
-const AnimatedView = Animated.createAnimatedComponent(View);
+/**
+ * The node that actually paints AND animates. Per PLAN_ui_polish.md §3.3
+ * (finding F1): the outer `Pressable` is the one carrying the caller's full
+ * `style` — background, border, radius, shadow — so it has to be the one
+ * that animates scale/translateY/opacity/shadow too, or the fill sits still
+ * while only the (paint-less) inner node visibly moves. Must stay at module
+ * scope — creating this inside the component body would remount the whole
+ * subtree on every render.
+ */
+const PressableBase = Animated.createAnimatedComponent(Pressable);
 
 /**
  * Splits a caller's `style` between `AnimatedPressable`/`RepeatingPressable`'s
  * two nodes: the outer `Pressable` (which needs the FULL style — it's the
  * actual flex item in whatever row/column contains the button, so sizing
  * props like `flex`/`height`/`width` have to land there or Yoga has nothing
- * to size against) and the inner `AnimatedView` (which needs the LAYOUT
- * props — `flexDirection`/`alignItems`/`gap`/etc — so multi-child buttons
- * still arrange their children correctly, but NOT the paint props).
+ * to size against) and the inner `View` (which needs the LAYOUT props —
+ * `flexDirection`/`alignItems`/`gap`/etc — so multi-child buttons still
+ * arrange their children correctly, but NOT the paint props).
  *
  * The paint props (`borderWidth`/`borderColor`/`backgroundColor`/shadow/
  * `borderRadius`) are dropped from the inner copy on purpose: both nodes
@@ -56,7 +65,11 @@ const AnimatedView = Animated.createAnimatedComponent(View);
  * icon buttons and outlined controls) the two layers visibly composite to a
  * darker/more saturated edge than the design intends. Stripping them from
  * the inner node means only the outer Pressable ever paints the visible
- * chrome, while the inner node stays a transparent layout+animation shell.
+ * chrome, while the inner node stays a transparent layout shell.
+ *
+ * The inner node is a plain `View`, not an animated one — since F1, all
+ * animation lives on the outer `PressableBase`. One fewer animated node per
+ * button, across every call site.
  */
 const PAINT_KEYS = [
   'backgroundColor',
@@ -92,75 +105,120 @@ function layoutOnlyStyle(style: StyleProp<ViewStyle> | undefined): ViewStyle {
   return layoutOnly;
 }
 
-// ── Press animation ───────────────────────────────────────────────────────
+// ── Press + depth animation ─────────────────────────────────────────────────
+
+/** How a button reads as depth on press. See PLAN_ui_polish.md §3.6.
+ *  - 'none': scale/opacity only, no shadow channel (outlines, transparent
+ *    fills, anything where a shadow would trace the label instead of a box).
+ *  - 'sink': filled buttons — press down into the surface, shadow closes up.
+ *  - 'lift': cards and other large surfaces — press response still sinks
+ *    slightly (you can't lift on press-in and have anywhere to go), but
+ *    carries a bigger rest/press shadow spread than a plain sink.
+ */
+export type PressDepth = 'none' | 'sink' | 'lift';
 
 /**
- * Shared press feedback for every button in the app: a quick scale-down +
- * opacity dip on press-in (native-thread, via Reanimated, so it never waits
- * on a JS re-render), a light spring back to rest on release, and — unless
- * opted out — a light haptic tick that lands together with the visual squish
+ * Shared press feedback for every button in the app: a quick scale/translate/
+ * opacity move on press-in (native-thread, via Reanimated, so it never waits
+ * on a JS re-render), a short timed return to rest on release, and — unless
+ * opted out — a semantic haptic that lands together with the visual move
  * rather than after it.
  *
- * Every button used to be a bare `Pressable` with either no pressed style at
- * all, or a static `opacity: 0.5` snap. This is the one place that changes,
- * so every button picks up the same feel at once.
+ * A single `pressProgress` shared value (0 = rest, 1 = pressed) drives scale,
+ * translateY, opacity AND the shadow channel together, so they can never
+ * desynchronise (§3.4).
+ *
+ * Shadow geometry (offset/radius) is never animated — only `shadowOpacity`
+ * (iOS) and a stepped `elevation` (Android) move; see the `elevation` token
+ * doc comment in `tokens.ts` for why. `transform` carries the depth read.
  */
+type ElevationKey = keyof typeof elevation;
+
+/** Rest/pressed elevation *keys* per depth mode — kept as string keys (not
+ *  the frozen objects themselves) so the worklet below can look up opacity
+ *  and stepped-elevation scalars without comparing object identity. */
+const DEPTH_LEVELS: Record<PressDepth, { rest: ElevationKey; pressed: ElevationKey }> = {
+  none: { rest: 'e0', pressed: 'e0' },
+  sink: { rest: 'e2', pressed: 'e0' },
+  lift: { rest: 'e1', pressed: 'e3' },
+};
+
 function usePressAnimation({
-  toScale = 0.96,
-  toOpacity = 0.85,
-  haptic = true,
+  toScale = press.scaleButton,
+  toOpacity = press.opacity,
+  toTranslateY,
+  depth = 'none',
+  haptic: hapticKind = 'tap',
   disabled = false,
 }: {
   toScale?: number;
   toOpacity?: number;
-  haptic?: boolean;
+  toTranslateY?: number;
+  depth?: PressDepth;
+  haptic?: Haptic | boolean;
   disabled?: boolean;
 } = {}) {
-  const scale = useSharedValue(1);
-  const opacity = useSharedValue(1);
+  const pressProgress = useSharedValue(0);
 
-  const animatedStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: scale.value }],
-    opacity: opacity.value,
-  }));
+  const { rest: restKey, pressed: pressedKey } = DEPTH_LEVELS[depth];
+  const restOpacity = elevationOpacity[restKey];
+  const pressedOpacity = elevationOpacity[pressedKey];
+  const restElevationStep = elevationLevel[restKey];
+  const pressedElevationStep = elevationLevel[pressedKey];
+
+  // Trap (§3.5.1): a static `disabled && { opacity: 0.35 }` in a caller's
+  // style array would be overridden by this animated `opacity`, silently
+  // un-dimming disabled buttons. Feed the rest alpha into the worklet
+  // instead, so disabled dimming and press feedback share one channel.
+  const restAlpha = disabled ? 0.35 : 1;
+  const translateYTo = toTranslateY ?? (depth === 'lift' ? press.liftY : depth === 'sink' ? press.sinkY : 0);
+
+  const animatedStyle = useAnimatedStyle(() => {
+    const p = pressProgress.value;
+    return {
+      transform: [
+        { scale: interpolate(p, [0, 1], [1, toScale]) },
+        { translateY: interpolate(p, [0, 1], [0, translateYTo]) },
+      ],
+      opacity: disabled ? restAlpha : interpolate(p, [0, 1], [restAlpha, toOpacity]),
+      shadowOpacity: depth === 'none' ? 0 : interpolate(p, [0, 1], [restOpacity, pressedOpacity]),
+      // Android: two discrete states, not 60 interpolated ones — elevation
+      // quantises to a handful of steps on many OEM skins regardless, so
+      // tweening it just wastes frames for a result nobody sees move.
+      elevation: depth === 'none' ? 0 : p > 0.5 ? pressedElevationStep : restElevationStep,
+    };
+  });
 
   const pressIn = () => {
     if (disabled) return;
-    scale.value = withTiming(toScale, { duration: 80 });
-    opacity.value = withTiming(toOpacity, { duration: 80 });
-    if (haptic) {
-      // Guarded with try/catch, not just `.catch()` on the promise: if the
-      // native module itself failed to link into this build, the call throws
-      // SYNCHRONOUSLY before it ever returns a promise to attach `.catch` to.
-      // An uncaught throw here happens inside the Pressable's onPressIn
-      // handler, ahead of onPress — on Hermes/release builds that can abort
-      // the rest of the gesture, which is indistinguishable from "the button
-      // does nothing" (PLAN_bugfix_round2.md item 1–3).
-      try {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)?.catch(() => {});
-      } catch {
-        // Haptics unavailable on this build/device — press animation and
-        // onPress must still proceed.
-      }
+    pressProgress.value = withTiming(1, motion.pressIn);
+    if (hapticKind !== false && hapticKind !== 'none') {
+      fireHaptic(hapticKind === true ? 'tap' : hapticKind);
     }
   };
 
   const pressOut = () => {
     if (disabled) return;
-    scale.value = withSpring(1, { damping: 14, stiffness: 260 });
-    opacity.value = withTiming(1, { duration: 120 });
+    pressProgress.value = withTiming(0, motion.pressOut);
   };
 
-  return { animatedStyle, pressIn, pressOut };
-}
+  // The shadow's rest geometry (offset/radius/color) is static — spread once
+  // as a plain style object alongside the animated opacity/elevation above,
+  // so iOS has a shadow shape to fade opacity in and out of (trap §3.5.2: an
+  // absent shadowColor at rest means there's nothing to animate FROM).
+  const restShadowGeometry = depth === 'none' ? elevation.e0 : elevation[restKey];
 
+  return { animatedStyle, pressIn, pressOut, restShadowGeometry };
+}
 /**
- * A `Pressable` wrapped in the shared press animation above. Drop-in for any
- * button shape — pass the button's own style(s) via `style`. The full style
- * lands on the outer `Pressable` (so sizing like `flex: 1` resolves against
- * the node that's actually a flex item in the caller's layout); a layout-only
- * copy (no border/background/radius/shadow — see `layoutOnlyStyle`) lands on
- * the inner animated view, which also carries the press scale/opacity.
+ * A `Pressable` wrapped in the shared press + depth animation above. Drop-in
+ * for any button shape — pass the button's own style(s) via `style`. The
+ * full style, plus the animated depth style, land on the outer `PressableBase`
+ * (so sizing like `flex: 1` resolves against the node that's actually a flex
+ * item in the caller's layout, AND so the node that paints background/border/
+ * shadow is the same one that visibly moves — see F1 in PLAN_ui_polish.md
+ * §3.3); a layout-only copy (no border/background/radius/shadow — see
+ * `layoutOnlyStyle`) lands on a plain inner `View`.
  */
 export function AnimatedPressable({
   onPress,
@@ -171,6 +229,8 @@ export function AnimatedPressable({
   children,
   toScale,
   toOpacity,
+  toTranslateY,
+  depth = 'none',
   haptic,
   ...rest
 }: {
@@ -182,57 +242,65 @@ export function AnimatedPressable({
   children: ReactNode;
   toScale?: number;
   toOpacity?: number;
-  haptic?: boolean;
+  toTranslateY?: number;
+  depth?: PressDepth;
+  haptic?: Haptic | boolean;
   [key: string]: unknown;
 }) {
-  const press = usePressAnimation({ toScale, toOpacity, haptic, disabled });
+  const pressAnim = usePressAnimation({ toScale, toOpacity, toTranslateY, depth, haptic, disabled });
 
-  // The full `style` goes on the outer Pressable — it's the actual flex item
-  // in whatever row/column contains this button, so sizing props (`flex`,
-  // `height`, `width`) have to land there or Yoga has nothing to size
-  // against and the box collapses toward its content (this is exactly what
-  // made ConfirmDialog's `flex: 1` action buttons render as collapsed
-  // slivers — the old code applied `style` to the inner view only).
+  // The full `style`, the static rest-shadow geometry, and the animated
+  // depth style all land on the outer PressableBase — it's the actual flex
+  // item in whatever row/column contains this button, so sizing props
+  // (`flex`, `height`, `width`) have to land there or Yoga has nothing to
+  // size against (this is exactly what made ConfirmDialog's `flex: 1` action
+  // buttons render as collapsed slivers before the 2026-08-25 fix). It is
+  // now ALSO the node carrying scale/translateY/opacity/shadow (F1) — before
+  // this, those lived on a separate inner node with no paint props, so
+  // pressing a button visibly moved its label while the fill sat still.
   //
-  // The inner AnimatedView gets a LAYOUT-ONLY copy (see `layoutOnlyStyle`):
-  // it still needs `flexDirection`/`alignItems`/`gap` so multi-child buttons
+  // The inner View gets a LAYOUT-ONLY copy (see `layoutOnlyStyle`): it still
+  // needs `flexDirection`/`alignItems`/`gap` so multi-child buttons
   // (ExercisePicker's thumbnail + text + badge rows) arrange correctly, but
   // not the paint props — border/background/radius/shadow are dropped so
   // they're never rendered twice at the same coincident rect. Two solid-color
   // layers stacked would just be wasteful; two semi-transparent rgba layers
   // (this app's hairline borders and soft-red/orange/green tints) would
   // visibly composite to a darker edge than intended, which is the failure
-  // mode this split avoids.
+  // mode this split avoids. It is a plain View, not animated — nothing
+  // animates on it anymore.
   return (
-    <Pressable
+    <PressableBase
       onPress={onPress}
       onPressIn={() => {
-        press.pressIn();
+        pressAnim.pressIn();
         onPressIn?.();
       }}
       onPressOut={() => {
-        press.pressOut();
+        pressAnim.pressOut();
         onPressOut?.();
       }}
       disabled={disabled}
-      style={style}
+      style={[style, pressAnim.restShadowGeometry, pressAnim.animatedStyle]}
       {...rest}
     >
-      <AnimatedView style={[layoutOnlyStyle(style), press.animatedStyle]}>{children}</AnimatedView>
-    </Pressable>
+      <View style={layoutOnlyStyle(style)}>{children}</View>
+    </PressableBase>
   );
 }
 
 /**
- * The same press animation as `AnimatedPressable`, plus press-and-hold
+ * The same press + depth animation as `AnimatedPressable`, plus press-and-hold
  * auto-repeat — built for stepper −/+ buttons, where holding the button
  * should keep incrementing rather than requiring a tap per step.
  *
  * Timing: an initial ~400ms delay (so a normal tap never double-fires),
  * then repeats on a ~130ms interval, clamped to whatever `onRepeat` itself
  * enforces (min/max belong to the caller, same as a single tap). No haptic
- * per repeat tick — a buzz every 130ms reads as noise, not feedback — only
- * on the initial press, same as every other button.
+ * per repeat tick by default — a buzz every 130ms reads as noise, not
+ * feedback — only on the initial press, same as every other button. (See
+ * PLAN_ui_polish.md §4.2 for the "every 3rd tick" exception some callers
+ * opt into.)
  */
 export function RepeatingPressable({
   onRepeat,
@@ -241,6 +309,10 @@ export function RepeatingPressable({
   children,
   initialDelay = 400,
   repeatInterval = 130,
+  toScale = press.scaleStepper,
+  haptic = 'tap',
+  repeatHapticEveryNth,
+  repeatHaptic = 'select',
   ...rest
 }: {
   onRepeat: () => void;
@@ -249,11 +321,24 @@ export function RepeatingPressable({
   children: ReactNode;
   initialDelay?: number;
   repeatInterval?: number;
+  toScale?: number;
+  haptic?: Haptic | boolean;
+  /** If set, fires `repeatHaptic` every Nth repeat tick while held (e.g. 3 ≈
+   *  every ~390ms at the default interval). Off by default — most repeating
+   *  controls stay silent while held, per the plan. */
+  repeatHapticEveryNth?: number;
+  repeatHaptic?: Haptic;
   [key: string]: unknown;
 }) {
-  const press = usePressAnimation({ toScale: 0.9, toOpacity: 1, haptic: true, disabled });
+  const pressAnim = usePressAnimation({ toScale, toOpacity: 1, haptic, disabled });
   const delayTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const repeatTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const repeatTickCount = useRef(0);
+  // A press can occasionally be started again before React Native delivers
+  // the preceding press-out. Keep a generation for the active interaction so
+  // callbacks from an abandoned delay/interval can never keep repeating.
+  const pressGeneration = useRef(0);
+  const isPressed = useRef(false);
   // `onRepeat` is a new closure every render (it's `() => onChange(clamp(value
   // ± step))` at the call site, closing over that render's `value`). The
   // interval below is created once, in `start()`, and must keep reading the
@@ -277,42 +362,61 @@ export function RepeatingPressable({
   // Belt-and-braces: a held button whose screen unmounts mid-press (e.g. the
   // sheet is dismissed) must not leave an interval running against state
   // that no longer exists.
-  useEffect(() => clearTimers, []);
+  useEffect(
+    () => () => {
+      isPressed.current = false;
+      pressGeneration.current += 1;
+      clearTimers();
+    },
+    [],
+  );
 
   const start = () => {
     if (disabled) return;
-    press.pressIn();
+    // `onPressIn` is not guaranteed to be paired with its prior
+    // `onPressOut` before another touch is recognised. Without this cleanup,
+    // the old timer is overwritten in its ref and becomes impossible to
+    // cancel, leaving the stepper incrementing after the finger is released.
+    clearTimers();
+    const generation = ++pressGeneration.current;
+    isPressed.current = true;
+    pressAnim.pressIn();
+    repeatTickCount.current = 0;
     onRepeatRef.current();
     delayTimer.current = setTimeout(() => {
-      repeatTimer.current = setInterval(() => onRepeatRef.current(), repeatInterval);
+      if (!isPressed.current || pressGeneration.current !== generation) return;
+      repeatTimer.current = setInterval(() => {
+        if (!isPressed.current || pressGeneration.current !== generation) return;
+        onRepeatRef.current();
+        if (repeatHapticEveryNth != null && repeatHapticEveryNth > 0) {
+          repeatTickCount.current += 1;
+          if (repeatTickCount.current % repeatHapticEveryNth === 0) {
+            fireHaptic(repeatHaptic);
+          }
+        }
+      }, repeatInterval);
     }, initialDelay);
   };
 
   const stop = () => {
+    isPressed.current = false;
+    pressGeneration.current += 1;
     clearTimers();
-    press.pressOut();
+    pressAnim.pressOut();
   };
 
-  // Same split as `AnimatedPressable` above: the full `style` lands on the
-  // outer Pressable (the real flex item, so sizing/flex from a parent row
-  // resolves correctly), while the inner AnimatedView gets a layout-only
-  // copy — same `flexDirection`/`alignItems`/`gap` for multi-child content,
-  // but no border/background/radius/shadow, so paint props never render
-  // twice at the same coincident rect (which would double up any
-  // semi-transparent border/fill).
   return (
-    <Pressable
+    <PressableBase
       onPressIn={start}
       onPressOut={stop}
       disabled={disabled}
-      style={style}
+      style={[style, pressAnim.restShadowGeometry, pressAnim.animatedStyle]}
       {...rest}
     >
-      <AnimatedView style={[layoutOnlyStyle(style), press.animatedStyle]}>{children}</AnimatedView>
-    </Pressable>
+      <View style={layoutOnlyStyle(style)}>{children}</View>
+    </PressableBase>
   );
 }
-
 // ── Text ───────────────────────────────────────────────────────────────────
 
 export function MonoLabel({
@@ -361,7 +465,7 @@ export function ScreenHeader({
       {/* A bare glyph at this font size is well under 44px on its own;
           hitSlop raised so the effective target clears it
           (`PLAN_ui_fixes.md` B6). */}
-      <AnimatedPressable onPress={onBack} hitSlop={16} haptic={false} toOpacity={0.5}>
+      <AnimatedPressable onPress={onBack} hitSlop={16} haptic="tap" toOpacity={0.5}>
         <Text style={{ fontSize: 22, lineHeight: 26, color: color.ink }}>←</Text>
       </AnimatedPressable>
       {action ?? <View />}
@@ -373,7 +477,7 @@ export function ScreenHeader({
  *  "Save", and so on. */
 export function HeaderAction({ label, onPress }: { label: string; onPress: () => void }) {
   return (
-    <AnimatedPressable onPress={onPress} hitSlop={12} haptic={false} toOpacity={0.5}>
+    <AnimatedPressable onPress={onPress} hitSlop={12} haptic="tap" toOpacity={0.5}>
       <MonoLabel tone={color.inkMuted}>{label}</MonoLabel>
     </AnimatedPressable>
   );
@@ -414,7 +518,7 @@ export function FilterPill({
   return (
     <AnimatedPressable
       onPress={onPress}
-      haptic={false}
+      haptic="select"
       toScale={0.95}
       toOpacity={0.8}
       style={[styles.pill, active ? styles.pillActive : styles.pillInactive]}
@@ -429,6 +533,52 @@ export function FilterPill({
 
 // ── Containers ─────────────────────────────────────────────────────────────
 
+/**
+ * The base elevated surface `Card` and `StatCard` both wrap — see
+ * PLAN_ui_polish.md §3.7. With `onPress` it composes `AnimatedPressable` with
+ * `depth="lift"`; without, a plain `View`. Centralising this is also the
+ * natural home for future elevated primitives — nothing about `Card`'s or
+ * `StatCard`'s own call sites changes.
+ */
+export function Surface({
+  children,
+  style,
+  radius: radiusKey = 'card',
+  level = 1,
+  onPress,
+  haptic = 'tap',
+  depth = 'lift',
+}: {
+  children: ReactNode;
+  style?: StyleProp<ViewStyle>;
+  radius?: 'card' | 'cardTight' | 'sheet';
+  level?: 0 | 1 | 2 | 3 | 4;
+  onPress?: () => void;
+  haptic?: Haptic | boolean;
+  depth?: PressDepth;
+}) {
+  const levelKey = `e${level}` as ElevationKey;
+  const base: ViewStyle = {
+    backgroundColor: color.surface,
+    borderRadius: radius[radiusKey],
+    ...elevation[levelKey],
+  };
+  if (onPress) {
+    return (
+      <AnimatedPressable
+        onPress={onPress}
+        haptic={haptic}
+        toScale={press.scaleCard}
+        depth={depth}
+        style={[base, style]}
+      >
+        {children}
+      </AnimatedPressable>
+    );
+  }
+  return <View style={[base, style]}>{children}</View>;
+}
+
 export function Card({
   children,
   style,
@@ -438,9 +588,17 @@ export function Card({
   style?: StyleProp<ViewStyle>;
   onPress?: () => void;
 }) {
+  // `haptic="tap"` here (previously `false`, G9) — the biggest tap targets in
+  // the app were silent.
   if (onPress) {
     return (
-      <AnimatedPressable onPress={onPress} haptic={false} toScale={0.98} toOpacity={0.9} style={[styles.card, style]}>
+      <AnimatedPressable
+        onPress={onPress}
+        haptic="tap"
+        toScale={press.scaleCard}
+        depth="lift"
+        style={[styles.card, style]}
+      >
         {children}
       </AnimatedPressable>
     );
@@ -448,7 +606,10 @@ export function Card({
   return <View style={[styles.card, style]}>{children}</View>;
 }
 
-/** A `sunken` row — "Prepare 00:10", the skipped note, "Used in" entries. */
+/** A `sunken` row — "Prepare 00:10", the skipped note, "Used in" entries.
+ *  Stays flat *on purpose* (`depth="none"`) — it is the inset counterpart to
+ *  `Card`, so it should never appear to lift off the canvas. Haptic added
+ *  (previously `false`, G9). */
 export function SunkenRow({
   children,
   style,
@@ -460,7 +621,7 @@ export function SunkenRow({
 }) {
   if (onPress) {
     return (
-      <AnimatedPressable onPress={onPress} haptic={false} toScale={0.98} toOpacity={0.85} style={[styles.sunkenRow, style]}>
+      <AnimatedPressable onPress={onPress} haptic="tap" toScale={0.98} toOpacity={0.85} style={[styles.sunkenRow, style]}>
         {children}
       </AnimatedPressable>
     );
@@ -485,7 +646,9 @@ export function PrimaryButton({
     <AnimatedPressable
       onPress={onPress}
       disabled={disabled}
-      style={[styles.primaryButton, disabled && { opacity: 0.35 }, style]}
+      depth="sink"
+      haptic="tap"
+      style={[styles.primaryButton, style]}
     >
       <Text style={styles.primaryLabel}>{label}</Text>
     </AnimatedPressable>
@@ -502,8 +665,46 @@ export function SecondaryButton({
   style?: StyleProp<ViewStyle>;
 }) {
   return (
-    <AnimatedPressable onPress={onPress} toOpacity={0.6} style={[styles.secondaryButton, style]}>
+    // Outline, no fill — a shadow under it would trace the label, not a box
+    // (§3.5.3), so this stays `depth="none"` (the default).
+    <AnimatedPressable onPress={onPress} haptic="tap" toOpacity={0.6} style={[styles.secondaryButton, style]}>
       <Text style={styles.secondaryLabel}>{label}</Text>
+    </AnimatedPressable>
+  );
+}
+
+/**
+ * Soft-red destructive CTA — same shape as `PrimaryButton` (full-width dark
+ * fill button), but filled with the app's soft-red pattern (`softRed` bg,
+ * `softRedBorder` border, `softRedIcon` text) instead of the dark accent, so
+ * an irreversible action reads as one at a glance rather than looking like
+ * any other primary button. `depth="sink"` and `haptic="confirm"` per
+ * PLAN_ui_polish.md §4.2 (destructive CTAs get `confirm`, not `tap`).
+ *
+ * Added per the CLAUDE.md guardrail: this shape had shipped three times as a
+ * hand-styled lookalike `Pressable` (`session/[id].tsx`'s Delete CTA among
+ * them) before landing here once.
+ */
+export function DestructiveButton({
+  label,
+  onPress,
+  style,
+  disabled,
+}: {
+  label: string;
+  onPress: () => void;
+  style?: StyleProp<ViewStyle>;
+  disabled?: boolean;
+}) {
+  return (
+    <AnimatedPressable
+      onPress={onPress}
+      disabled={disabled}
+      depth="sink"
+      haptic="confirm"
+      style={[styles.destructiveButton, style]}
+    >
+      <Text style={styles.destructiveLabel}>{label}</Text>
     </AnimatedPressable>
   );
 }
@@ -511,7 +712,7 @@ export function SecondaryButton({
 /** The dark circular `+` on 1a and 1e. */
 export function AddCircle({ onPress }: { onPress: () => void }) {
   return (
-    <AnimatedPressable onPress={onPress} hitSlop={8} style={styles.addCircle}>
+    <AnimatedPressable onPress={onPress} hitSlop={8} depth="sink" haptic="tap" style={styles.addCircle}>
       <Text style={{ color: color.darkInk, fontSize: 20, lineHeight: 22 }}>+</Text>
     </AnimatedPressable>
   );
@@ -529,6 +730,15 @@ export function AddCircle({ onPress }: { onPress: () => void }) {
  * default, or a `tintBg`/`tintBorder` pair for a coloured variant (bin →
  * soft red, edit → soft orange) — so every icon control reads as a tappable
  * button rather than a loose glyph floating on the canvas.
+ *
+ * At 44px depth reads as a smudge (§3.6), so this stays `depth="none"` —
+ * scale-only feedback, plus a `haptic` (defaults to `tap`).
+ *
+ * `size`/`shape` (§10 fold-in): a `small` icon button drops to 32×32 (the
+ * block-delete `×` in the builder shipped at a hand-rolled 28×28 because
+ * `IconButton` had no smaller size; `circle` gives a fully round variant for
+ * the exercise-detail delete button, which had shipped as its own third
+ * soft-red implementation for lack of a `shape` prop here).
  */
 export function IconButton({
   onPress,
@@ -538,6 +748,9 @@ export function IconButton({
   tintBg,
   tintBorder,
   disabled,
+  size: sizeVariant = 'default',
+  shape = 'square',
+  haptic = 'tap',
 }: {
   onPress: () => void;
   accessibilityLabel: string;
@@ -546,16 +759,22 @@ export function IconButton({
   tintBg?: string;
   tintBorder?: string;
   disabled?: boolean;
+  size?: 'default' | 'small';
+  shape?: 'square' | 'circle';
+  haptic?: Haptic | boolean;
 }) {
+  const box = sizeVariant === 'small' ? 32 : 44;
   return (
     <AnimatedPressable
       onPress={onPress}
       disabled={disabled}
+      haptic={haptic}
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
-      hitSlop={4}
+      hitSlop={sizeVariant === 'small' ? 6 : 4}
       style={[
         styles.iconButton,
+        { width: box, height: box, borderRadius: shape === 'circle' ? box / 2 : radius.button },
         tintBg != null && { backgroundColor: tintBg },
         tintBorder != null && { borderColor: tintBorder },
         disabled && { opacity: 0.35 },
@@ -578,16 +797,21 @@ export function IconButton({
  *
  * Every delete action in the app is soft-red (`PLAN_ui_fixes.md` UI pass) —
  * pale fill, matching border, red glyph — so "this removes something" is
- * legible at a glance rather than only on read.
+ * legible at a glance rather than only on read. Haptic is `confirm` — a
+ * destructive action, per PLAN_ui_polish.md §4.2.
  */
 export function BinButton({
   onPress,
   accessibilityLabel = 'Delete',
   tone = color.softRedIcon,
+  size,
+  shape,
 }: {
   onPress: () => void;
   accessibilityLabel?: string;
   tone?: string;
+  size?: 'default' | 'small';
+  shape?: 'square' | 'circle';
 }) {
   return (
     <IconButton
@@ -595,6 +819,9 @@ export function BinButton({
       accessibilityLabel={accessibilityLabel}
       tintBg={color.softRed}
       tintBorder={color.softRedBorder}
+      size={size}
+      shape={shape}
+      haptic="confirm"
     >
       <View style={styles.binGlyph}>
         <View style={[styles.binHandle, { backgroundColor: tone }]} />
@@ -614,9 +841,13 @@ export function BinButton({
 export function PencilButton({
   onPress,
   accessibilityLabel = 'Edit',
+  size,
+  shape,
 }: {
   onPress: () => void;
   accessibilityLabel?: string;
+  size?: 'default' | 'small';
+  shape?: 'square' | 'circle';
 }) {
   return (
     <IconButton
@@ -624,6 +855,8 @@ export function PencilButton({
       accessibilityLabel={accessibilityLabel}
       tintBg={color.softOrange}
       tintBorder={color.softOrangeBorder}
+      size={size}
+      shape={shape}
     >
       <View style={styles.pencilGlyph}>
         <View style={styles.pencilBody} />
@@ -640,6 +873,10 @@ export function PencilButton({
  * `sunken` fill it used to share with every other resting control, it read as
  * inert rather than as the screen's one confirming action
  * (`PLAN_ui_fixes.md` UI pass — "save button does not work").
+ *
+ * Haptic is fired on completion by the caller (`success`/`warning`), not on
+ * press — see PLAN_ui_polish.md §4.2 — so this passes `haptic="none"` to the
+ * underlying `IconButton` to avoid a double signal.
  */
 export function SaveButton({
   onPress,
@@ -650,11 +887,15 @@ export function SaveButton({
    *  the press really should do nothing. */
   dim = false,
   disabled = false,
+  size,
+  shape,
 }: {
   onPress: () => void;
   accessibilityLabel?: string;
   dim?: boolean;
   disabled?: boolean;
+  size?: 'default' | 'small';
+  shape?: 'square' | 'circle';
 }) {
   return (
     <IconButton
@@ -664,6 +905,9 @@ export function SaveButton({
       tintBg={color.softGreen}
       tintBorder={color.softGreenBorder}
       style={dim ? { opacity: 0.45 } : undefined}
+      size={size}
+      shape={shape}
+      haptic="none"
     >
       <Text style={styles.saveGlyph}>✓</Text>
     </IconButton>
@@ -687,11 +931,15 @@ export function CancelButton({
    *  the press really should do nothing. */
   dim = false,
   disabled = false,
+  size,
+  shape,
 }: {
   onPress: () => void;
   accessibilityLabel?: string;
   dim?: boolean;
   disabled?: boolean;
+  size?: 'default' | 'small';
+  shape?: 'square' | 'circle';
 }) {
   return (
     <IconButton
@@ -701,6 +949,9 @@ export function CancelButton({
       tintBg={color.softRed}
       tintBorder={color.softRedBorder}
       style={dim ? { opacity: 0.45 } : undefined}
+      size={size}
+      shape={shape}
+      haptic="confirm"
     >
       <Text style={styles.cancelGlyph}>✕</Text>
     </IconButton>
@@ -760,6 +1011,9 @@ export function MoreButton({
  * the detail screen — for the single thing the app exists to do. `disabled`
  * exists because a training with no exercises has nothing to run; it is dimmed
  * in place rather than hidden, so the row's shape does not jump between cards.
+ *
+ * Haptic is `confirm` — starting a workout is the app's one irreversible
+ * "here we go" tap (PLAN_ui_polish.md §4.2).
  */
 export function PlayButton({
   onPress,
@@ -777,6 +1031,8 @@ export function PlayButton({
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
       hitSlop={8}
+      depth="sink"
+      haptic="confirm"
       style={[styles.playButton, disabled && { opacity: 0.3 }]}
     >
       <View style={styles.playTriangle} />
@@ -908,7 +1164,7 @@ export function MiniStepper({
       ) : (
         <AnimatedPressable
           onPress={onOpen}
-          haptic={false}
+          haptic="tap"
           toScale={0.95}
           toOpacity={0.7}
           style={styles.miniValueTap}
@@ -924,7 +1180,9 @@ export function MiniStepper({
 
 // ── Stat card ──────────────────────────────────────────────────────────────
 
-/** Mono micro-label over a large tabular figure — 1k's 2×2 grid and 1f's 3-up. */
+/** Mono micro-label over a large tabular figure — 1k's 2×2 grid and 1f's 3-up.
+ *  Non-interactive, so it renders `Surface` without `onPress`: e1 rest depth,
+ *  no press channel. */
 export function StatCard({
   label,
   value,
@@ -1054,7 +1312,6 @@ export function Thumbnail({
     </View>
   );
 }
-
 const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
@@ -1102,15 +1359,28 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
+  // Depth (shadow geometry + press behaviour) is now supplied by
+  // `AnimatedPressable`'s `depth` prop, not a static `...shadow.button`
+  // spread — see PLAN_ui_polish.md §3. The static spread would fight the
+  // animated shadowOpacity/elevation channel for the same keys.
   primaryButton: {
     height: size.primaryButton,
     borderRadius: radius.button,
     backgroundColor: color.accent,
     alignItems: 'center',
     justifyContent: 'center',
-    ...shadow.button,
   },
   primaryLabel: { fontFamily: 'Inter_700Bold', fontSize: 14, color: color.darkInk },
+  destructiveButton: {
+    height: size.primaryButton,
+    borderRadius: radius.button,
+    backgroundColor: color.softRed,
+    borderWidth: 1,
+    borderColor: color.softRedBorder,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  destructiveLabel: { fontFamily: 'Inter_700Bold', fontSize: 14, color: color.softRedIcon },
   secondaryButton: {
     height: size.primaryButton,
     borderRadius: radius.button,
@@ -1127,7 +1397,6 @@ const styles = StyleSheet.create({
     backgroundColor: color.accent,
     alignItems: 'center',
     justifyContent: 'center',
-    ...shadow.button,
   },
   iconButton: {
     width: 44,
@@ -1196,7 +1465,6 @@ const styles = StyleSheet.create({
     backgroundColor: color.accent,
     alignItems: 'center',
     justifyContent: 'center',
-    ...shadow.button,
   },
   playTriangle: {
     width: 0,
@@ -1252,7 +1520,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   miniValue: { color: color.ink, fontSize: 12.5, textAlign: 'center' },
-  miniDisabled: { color: color.inkGhostest, fontSize: 12.5, marginTop: 9, textAlign: 'center' },
+  miniDisabled: { color: color.inkDisabled, fontSize: 12.5, marginTop: 9, textAlign: 'center' },
   statCard: {
     flex: 1,
     backgroundColor: color.surface,
@@ -1260,6 +1528,7 @@ const styles = StyleSheet.create({
     borderWidth: 0,
     paddingHorizontal: 14,
     paddingVertical: 14,
+    ...elevation.e1,
   },
   mediaCaption: {
     position: 'absolute',

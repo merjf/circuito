@@ -58,6 +58,7 @@ export function RestSheet({
           accessibilityRole="button"
           accessibilityLabel={`Take ${REST_ADJUST_SECONDS} seconds off this rest`}
           hitSlop={8}
+          haptic="select"
           style={styles.button}
         >
           <Text style={[t.monoLabel, { color: color.ink }]}>{`−${REST_ADJUST_SECONDS}s`}</Text>
@@ -68,6 +69,7 @@ export function RestSheet({
           accessibilityRole="button"
           accessibilityLabel={`Add ${REST_ADJUST_SECONDS} seconds to this rest`}
           hitSlop={8}
+          haptic="select"
           style={styles.button}
         >
           <Text style={[t.monoLabel, { color: color.ink }]}>{`+${REST_ADJUST_SECONDS}s`}</Text>

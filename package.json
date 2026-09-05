@@ -12,8 +12,8 @@
     "test": "jest",
     "typecheck": "tsc --noEmit",
     "deps:check": "node scripts/check-deps.js",
-    "apk": "bash scripts/build-apk.sh",
-    "apk:install": "bash scripts/build-apk.sh --install"
+    "apk": "node scripts/build-apk.js",
+    "apk:install": "node scripts/build-apk.js --install"
   },
   "dependencies": {
     "@expo-google-fonts/archivo": "~0.4.2",
@@ -33,6 +33,7 @@
     "expo-notifications": "^57.0.13",
     "expo-router": "~57.0.13",
     "expo-sharing": "^57.0.14",
+    "expo-splash-screen": "~57.0.6",
     "expo-sqlite": "~57.0.1",
     "expo-status-bar": "~57.0.1",
     "expo-system-ui": "~57.0.2",
